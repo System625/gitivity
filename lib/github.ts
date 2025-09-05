@@ -1,0 +1,204 @@
+export interface GitHubProfileData {
+  username: string
+  name: string | null
+  avatarUrl: string
+  bio: string | null
+  followers: number
+  following: number
+  publicRepos: number
+  totalStarsReceived: number // Stars received on user's repos
+  totalForksReceived: number // Forks of user's repos
+  totalCommits: number
+  createdAt: string
+  updatedAt: string
+  languages: { name: string; percentage: number }[]
+  // Enhanced data for Gitivity 2.0
+  totalPRsOpened: number
+  totalPRsMerged: number
+  totalIssuesOpened: number
+  totalIssuesClosed: number
+  totalReviewsGiven: number
+  repositoryHealth: { openIssues: number; closedIssues: number; ratio: number }
+  contributionStreak: { current: number; longest: number }
+  // Additional debug info
+  rawRepoData?: Record<string, unknown>[]
+  rawContributionsData?: Record<string, unknown>
+}
+
+const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql'
+
+export async function getGithubProfileData(username: string): Promise<GitHubProfileData | null> {
+  const token = process.env.GITHUB_PAT
+  
+  if (!token) {
+    throw new Error('GITHUB_PAT environment variable is required')
+  }
+
+  const query = `
+    query GetUserProfile($username: String!) {
+      user(login: $username) {
+        login
+        name
+        avatarUrl
+        bio
+        followers {
+          totalCount
+        }
+        following {
+          totalCount
+        }
+        repositories(first: 100, privacy: PUBLIC, orderBy: {field: STARGAZERS, direction: DESC}) {
+          totalCount
+          nodes {
+            name
+            stargazerCount
+            forkCount
+            primaryLanguage {
+              name
+            }
+            isFork
+            isPrivate
+            issues {
+              totalCount
+            }
+            pullRequests {
+              totalCount
+            }
+          }
+        }
+        issues {
+          totalCount
+        }
+        pullRequests {
+          totalCount
+        }
+        contributionsCollection {
+          totalCommitContributions
+          totalIssueContributions
+          totalPullRequestContributions
+          totalPullRequestReviewContributions
+        }
+        createdAt
+        updatedAt
+      }
+      rateLimit {
+        remaining
+        resetAt
+      }
+    }
+  `
+
+  try {
+    const response = await fetch(GITHUB_GRAPHQL_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        variables: { username }
+      })
+    })
+
+    const data = await response.json()
+
+    if (data.errors) {
+      console.error('GitHub API error:', data.errors)
+      return null
+    }
+
+    if (!data.data?.user) {
+      return null
+    }
+
+    const user = data.data.user
+    const repos = user.repositories.nodes
+
+    // Only count stars/forks from original repos (not forks)
+    const originalRepos = repos.filter((repo: Record<string, unknown>) => !repo.isFork)
+    const totalStarsReceived = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => sum + (repo.stargazerCount as number), 0)
+    const totalForksReceived = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => sum + (repo.forkCount as number), 0)
+
+    // Get total commits from contributions collection
+    const totalCommits = user.contributionsCollection.totalCommitContributions
+
+    // Calculate enhanced metrics for Gitivity 2.0
+    const totalPRsOpened = user.pullRequests.totalCount // Total PRs opened by user
+    const totalPRsMerged = user.contributionsCollection.totalPullRequestContributions // PRs that were merged/contributed
+    const totalIssuesOpened = user.issues.totalCount // Total issues opened by user
+    const totalIssuesClosed = user.contributionsCollection.totalIssueContributions // Issues contributed/closed
+    const totalReviewsGiven = user.contributionsCollection.totalPullRequestReviewContributions
+
+    // Calculate repository health (for original repos only)
+    const totalOpenIssues = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => {
+      const issues = repo.issues as Record<string, unknown> | undefined
+      return sum + ((issues?.totalCount as number) || 0)
+    }, 0)
+    const totalClosedIssues = 0 // We can't easily get closed issues per repo
+    const repositoryHealth = {
+      openIssues: totalOpenIssues,
+      closedIssues: totalClosedIssues,
+      ratio: totalOpenIssues === 0 ? 1.0 : 0.0 // If no open issues, 100% healthy; otherwise 0% since we can't track closed
+    }
+
+    // Calculate contribution streak (simplified - would need contribution calendar for exact calculation)
+    const accountAgeYears = (Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 365)
+    const avgCommitsPerYear = totalCommits / Math.max(accountAgeYears, 1)
+    const contributionStreak = {
+      current: Math.floor(avgCommitsPerYear / 10), // Rough estimate
+      longest: Math.floor(avgCommitsPerYear / 8) // Rough estimate
+    }
+
+    // Calculate language distribution
+    const languageCounts: { [key: string]: number } = {}
+    let totalReposWithLanguages = 0
+
+    repos.forEach((repo: Record<string, unknown>) => {
+      const primaryLanguage = repo.primaryLanguage as Record<string, unknown> | undefined
+      if (primaryLanguage) {
+        const languageName = primaryLanguage.name as string
+        languageCounts[languageName] = (languageCounts[languageName] || 0) + 1
+        totalReposWithLanguages++
+      }
+    })
+
+    const languages = Object.entries(languageCounts)
+      .map(([name, count]) => ({
+        name,
+        percentage: Math.round((count / totalReposWithLanguages) * 100)
+      }))
+      .sort((a, b) => b.percentage - a.percentage)
+      .slice(0, 5) // Top 5 languages
+
+    return {
+      username: user.login,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      bio: user.bio,
+      followers: user.followers.totalCount,
+      following: user.following.totalCount,
+      publicRepos: user.repositories.totalCount,
+      totalStarsReceived,
+      totalForksReceived,
+      totalCommits,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      languages,
+      // Enhanced data for Gitivity 2.0
+      totalPRsOpened,
+      totalPRsMerged,
+      totalIssuesOpened,
+      totalIssuesClosed,
+      totalReviewsGiven,
+      repositoryHealth,
+      contributionStreak,
+      rawRepoData: repos,
+      rawContributionsData: user.contributionsCollection
+    }
+
+  } catch (error) {
+    console.error('Error fetching GitHub data:', error)
+    return null
+  }
+}
