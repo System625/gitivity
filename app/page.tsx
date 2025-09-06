@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/stateful-button"
 import { GridBackground } from "@/components/ui/glowing-card"
 
@@ -15,10 +16,34 @@ export default function Home() {
   }
 
   const handleAnalyze = async () => {
-    if (username.trim()) {
-      // Simulate API call delay to show loading state
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      router.push(`/user/${username.trim()}`)
+    const trimmedUsername = username.trim()
+    if (!trimmedUsername) return
+
+    try {
+      // Validate user exists on GitHub first
+      const response = await fetch(`/api/validate-user?username=${encodeURIComponent(trimmedUsername)}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error("Error checking user", {
+          description: "Please try again in a moment."
+        })
+        return
+      }
+
+      if (!data.exists) {
+        toast.error("User not found", {
+          description: `GitHub user "${trimmedUsername}" doesn't exist. Please check the username and try again.`
+        })
+        return
+      }
+
+      // User exists, proceed to profile page
+      router.push(`/user/${trimmedUsername}`)
+    } catch {
+      toast.error("Network error", {
+        description: "Please check your connection and try again."
+      })
     }
   }
 

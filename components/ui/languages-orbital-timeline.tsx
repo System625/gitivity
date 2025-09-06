@@ -73,7 +73,7 @@ export function LanguagesOrbitalTimeline({ languages }: LanguagesOrbitalTimeline
   }));
 
   return (
-    <div className="w-full h-[500px] -m-4">
+    <div className="w-full h-[300px] md:h-[500px] -m-4">
       <RadialOrbitalTimeline timelineData={timelineData} />
     </div>
   );

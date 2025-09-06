@@ -50,7 +50,7 @@ export function GridBackground({
       />
 
       <div className="relative z-20 text-center max-w-7xl">
-        <h1 className='text-6xl font-bold'>{title}</h1>
+        <h1 className='text-6xl text-white font-bold'>{title}</h1>
         {description && (
           <p className='text-md mt-5 text-gray-300'>{description}</p>
         )}

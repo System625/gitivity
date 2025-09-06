@@ -5,6 +5,7 @@ import { GlowCard } from "@/components/spotlight-card"
 import { CometCard } from "@/components/ui/comet-card"
 import { ProfileActions } from "@/components/profile-actions"
 import { LanguagesOrbitalTimeline } from "@/components/ui/languages-orbital-timeline"
+import { CopyLinkButton } from "@/components/copy-link-button"
 import { Icon } from "@iconify/react"
 import Image from "next/image"
 
@@ -15,7 +16,8 @@ interface UserProfilePageProps {
 }
 
 export async function generateMetadata({ params }: UserProfilePageProps) {
-  const profile = await analyzeUser(params.username)
+  const { username } = await params
+  const profile = await analyzeUser(username)
   
   if (!profile) {
     return {
@@ -50,7 +52,8 @@ export async function generateMetadata({ params }: UserProfilePageProps) {
 }
 
 export default async function UserProfilePage({ params }: UserProfilePageProps) {
-  const profile = await analyzeUser(params.username)
+  const { username } = await params
+  const profile = await analyzeUser(username)
 
   if (!profile) {
     notFound()
@@ -316,8 +319,11 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         <div className="text-sm text-muted-foreground">
           Copy this link to share your Gitivity profile:
         </div>
-        <div className="bg-muted px-4 py-2 rounded-md font-mono text-sm max-w-md mx-auto">
-          {typeof window !== 'undefined' ? window.location.href : `https://gitivity.vercel.app/user/${profile.username}`}
+        <div className="flex flex-col items-center space-y-3">
+          <div className="bg-muted px-4 py-2 rounded-md font-mono text-sm max-w-md mx-auto">
+            {typeof window !== 'undefined' ? window.location.href : `https://gitivity.vercel.app/user/${profile.username}`}
+          </div>
+          <CopyLinkButton url={typeof window !== 'undefined' ? window.location.href : `https://gitivity.vercel.app/user/${profile.username}`} />
         </div>
       </div>
     </div>

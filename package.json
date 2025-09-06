@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "npx prisma generate && next build --turbopack",
+    "prebuild": "npx prisma generate",
+    "build": "next build --turbopack",
+    "postbuild": "npx prisma generate",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "npx prisma generate",
+    "db:reset": "if exist app\\generated\\prisma rmdir /s /q app\\generated\\prisma && npx prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",

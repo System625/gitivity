@@ -15,6 +15,7 @@ import { Icon } from "@iconify/react"
 import Image from "next/image"
 import { type GitivityStats } from "@/lib/analysis"
 import { type JsonValue } from "@prisma/client/runtime/library"
+import Link from "next/link";
 
 interface LeaderboardProfile {
   username: string;
@@ -32,23 +33,25 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
   const [profiles] = useState<LeaderboardProfile[]>(initialProfiles)
   const [searchTerm, setSearchTerm] = useState("")
   const [sortBy, setSortBy] = useState<'score' | 'repos' | 'stars' | 'followers'>('score')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [filteredProfiles, setFilteredProfiles] = useState<LeaderboardProfile[]>(initialProfiles)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 20
 
   useEffect(() => {
     let filtered = profiles
-    
+
     // Apply search filter
     if (searchTerm) {
-      filtered = filtered.filter(profile => 
+      filtered = filtered.filter(profile =>
         profile.username.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
-    
+
     // Apply sorting
     filtered = [...filtered].sort((a, b) => {
       let aValue: number, bValue: number
-      
+
       switch (sortBy) {
         case 'score':
           aValue = a.score
@@ -70,12 +73,19 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
           aValue = a.score
           bValue = b.score
       }
-      
+
       return sortOrder === 'desc' ? bValue - aValue : aValue - bValue
     })
-    
+
     setFilteredProfiles(filtered)
+    setCurrentPage(1) // Reset to first page when filters change
   }, [profiles, searchTerm, sortBy, sortOrder])
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredProfiles.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const currentProfiles = filteredProfiles.slice(startIndex, endIndex)
 
   // const handleSearch = async () => {
   //   // Simulate search delay
@@ -92,13 +102,20 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
       setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')
     } else {
       setSortBy(column)
-      setSortOrder(column === 'score' ? 'asc' : 'desc')
+      setSortOrder('desc')
     }
   }
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="space-y-6">
+        <Link 
+          href="/"
+          className="inline-block bg-card border border-border hover:bg-muted rounded-full p-3 shadow-lg transition-colors"
+          aria-label="Go back to homepage"
+        >
+          <Icon icon="mdi:arrow-left" className="text-xl text-foreground" />
+        </Link>
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-bold">Leaderboard</h1>
           <p className="text-muted-foreground text-lg">
@@ -115,133 +132,179 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-[300px] px-4 py-2 border rounded-full bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary grow"
           />
-          <StatefulButton onClick={handleClear} className="bg-muted hover:bg-muted/80 text-muted-foreground">              
+          <StatefulButton onClick={handleClear} className="bg-muted hover:bg-muted/80 text-muted-foreground">
             Clear
           </StatefulButton>
         </div>
 
-        <div className="rounded-lg border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow className="text-base">
-                <TableHead className="w-20 text-base font-semibold">Rank</TableHead>
-                <TableHead className="text-base font-semibold">Developer</TableHead>
-                <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-base font-semibold" onClick={() => handleSort('score')}>
-                  <div className="flex items-center justify-center gap-1">
-                    Score
-                    <Icon icon={sortBy === 'score' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-4 h-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-base font-semibold" onClick={() => handleSort('repos')}>
-                  <div className="flex items-center justify-center gap-1">
-                    Repos
-                    <Icon icon={sortBy === 'repos' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-4 h-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-base font-semibold" onClick={() => handleSort('stars')}>
-                  <div className="flex items-center justify-center gap-1">
-                    Stars
-                    <Icon icon={sortBy === 'stars' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-4 h-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-base font-semibold" onClick={() => handleSort('followers')}>
-                  <div className="flex items-center justify-center gap-1">
-                    Followers
-                    <Icon icon={sortBy === 'followers' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-4 h-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-right text-base font-semibold">Last Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredProfiles.map((profile) => {
-                const stats = profile.stats as unknown as GitivityStats
-                const originalIndex = profiles.findIndex(p => p.username === profile.username)
-                const rank = originalIndex + 1
-                
-                return (
-                  <TableRow key={profile.username}>
-                    <TableCell className="font-medium py-4">
-                      <div className="flex items-center gap-3">
-                        {rank <= 3 && (
-                          <Icon 
-                            icon={
-                              rank === 1 
-                                ? 'emojione:sports-medal' 
-                                : rank === 2 
-                                ? 'emojione:2nd-place-medal' 
-                                : 'emojione:3rd-place-medal'
-                            }
-                            className="text-2xl"
-                          />
-                        )}
-                        <span className={`text-lg ${rank <= 3 ? 'font-bold' : 'font-semibold'}`}>
-                          #{rank}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4">
-                      <LinkPreview 
-                        url={`https://github.com/${profile.username}`}
-                        className="block"
-                      >
-                        <div className="flex items-center gap-4 cursor-pointer hover:bg-muted/50 rounded-lg p-3 -m-3 transition-colors">
-                          {profile.avatarUrl && (
-                            <Image
-                              src={profile.avatarUrl}
-                              alt={profile.username}
-                              width={48}
-                              height={48}
-                              className="w-12 h-12 rounded-full border-2"
+        <div className="rounded-lg border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="text-sm md:text-base">
+                  <TableHead className="w-16 md:w-20 text-sm md:text-base font-semibold">Rank</TableHead>
+                  <TableHead className="min-w-[200px] text-sm md:text-base font-semibold">Developer</TableHead>
+                  <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-sm md:text-base font-semibold min-w-[80px]" onClick={() => handleSort('score')}>
+                    <div className="flex items-center justify-center gap-1">                      Score                     
+                      <Icon icon={sortBy === 'score' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-3 h-3 md:w-4 md:h-4" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-sm md:text-base font-semibold min-w-[70px] hidden sm:table-cell" onClick={() => handleSort('repos')}>
+                    <div className="flex items-center justify-center gap-1">
+                      <span className="hidden sm:inline">Repos</span>                      
+                      <Icon icon={sortBy === 'repos' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-3 h-3 md:w-4 md:h-4" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-sm md:text-base font-semibold min-w-[70px] hidden sm:table-cell" onClick={() => handleSort('stars')}>
+                    <div className="flex items-center justify-center gap-1">
+                      Stars
+                      <Icon icon={sortBy === 'stars' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-3 h-3 md:w-4 md:h-4" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-center cursor-pointer hover:bg-muted/50 transition-colors text-sm md:text-base font-semibold min-w-[80px] hidden md:table-cell" onClick={() => handleSort('followers')}>
+                    <div className="flex items-center justify-center gap-1">
+                      Followers
+                      <Icon icon={sortBy === 'followers' ? (sortOrder === 'desc' ? 'mdi:arrow-down' : 'mdi:arrow-up') : 'mdi:unfold-more-horizontal'} className="w-3 h-3 md:w-4 md:h-4" />
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-right text-sm md:text-base font-semibold min-w-[100px] hidden lg:table-cell">Last Updated</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {currentProfiles.map((profile) => {
+                  const stats = profile.stats as unknown as GitivityStats
+                  const originalIndex = filteredProfiles.findIndex(p => p.username === profile.username)
+                  const rank = originalIndex + 1
+
+                  return (
+                    <TableRow key={profile.username}>
+                      <TableCell className="font-medium py-2 md:py-4">
+                        <div className="flex items-center gap-1 md:gap-3">
+                          {rank <= 3 && (
+                            <Icon
+                              icon={
+                                rank === 1
+                                  ? 'emojione:sports-medal'
+                                  : rank === 2
+                                    ? 'emojione:2nd-place-medal'
+                                    : 'emojione:3rd-place-medal'
+                              }
+                              className="text-lg md:text-2xl"
                             />
                           )}
-                          <div>
-                            <div className="font-semibold text-lg">{stats?.name || profile.username}</div>
-                            <div className="text-base text-muted-foreground">
-                              @{profile.username}
+                          <span className={`text-base md:text-lg ${rank <= 3 ? 'font-bold' : 'font-semibold'}`}>
+                            #{rank}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2 md:py-4">
+                        <LinkPreview
+                          url={`https://github.com/${profile.username}`}
+                          className="block"
+                        >
+                          <div className="flex items-center gap-2 md:gap-4 cursor-pointer hover:bg-muted/50 rounded-lg p-2 md:p-3 -m-2 md:-m-3 transition-colors">
+                            {profile.avatarUrl && (
+                              <Image
+                                src={profile.avatarUrl}
+                                alt={profile.username}
+                                width={48}
+                                height={48}
+                                className="w-16 h-16 md:w-12 md:h-12 rounded-full border-2 flex-shrink-0"
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-semibold text-base md:text-lg truncate">{stats?.name || profile.username}</div>
+                              <div className="text-sm md:text-base text-muted-foreground truncate">
+                                @{profile.username}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </LinkPreview>
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold text-lg py-4">
-                      <span className={
-                        profile.score >= 95 ? "text-purple-400" :
-                        profile.score >= 70 ? "text-green-400" :
-                        profile.score >= 40 ? "text-yellow-400" :
-                        "text-red-400"
-                      }>
-                        {profile.score.toLocaleString()}%
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center font-semibold text-base py-4">
-                      {stats?.publicRepos?.toLocaleString() || 0}
-                    </TableCell>
-                    <TableCell className="text-center font-semibold text-base py-4">
-                      {stats?.totalStarsReceived?.toLocaleString() || 0}
-                    </TableCell>
-                    <TableCell className="text-center font-semibold text-base py-4">
-                      {stats?.followers?.toLocaleString() || 0}
-                    </TableCell>
-                    <TableCell className="text-right text-base text-muted-foreground py-4">
-                      {new Date(profile.updatedAt).toLocaleDateString()}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-          
-          {filteredProfiles.length === 0 && (
+                        </LinkPreview>
+                      </TableCell>
+                      <TableCell className="text-center font-mono font-bold text-base md:text-lg py-2 md:py-4">
+                        <span className={
+                          profile.score >= 95 ? "text-purple-400" :
+                            profile.score >= 70 ? "text-green-400" :
+                              profile.score >= 40 ? "text-yellow-400" :
+                                "text-red-400"
+                        }>
+                          {profile.score.toLocaleString()}%
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center font-semibold text-sm md:text-base py-2 md:py-4 hidden sm:table-cell">
+                        {stats?.publicRepos?.toLocaleString() || 0}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold text-sm md:text-base py-2 md:py-4 hidden sm:table-cell">
+                        {stats?.totalStarsReceived?.toLocaleString() || 0}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold text-sm md:text-base py-2 md:py-4 hidden md:table-cell">
+                        {stats?.followers?.toLocaleString() || 0}
+                      </TableCell>
+                      <TableCell className="text-right text-sm md:text-base text-muted-foreground py-2 md:py-4 hidden lg:table-cell">
+                        {new Date(profile.updatedAt).toLocaleDateString()}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {currentProfiles.length === 0 && filteredProfiles.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <p className="text-lg">No profiles found. {searchTerm ? 'Try a different search term.' : 'Be the first to get analyzed!'}</p>
             </div>
           )}
         </div>
 
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-1 md:gap-2 flex-wrap">
+            <StatefulButton
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-2 md:px-3 py-2 bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50"
+            >
+              <Icon icon="mdi:chevron-left" className="text-sm md:text-lg" />
+            </StatefulButton>
+
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => {
+                  const distance = Math.abs(page - currentPage)
+                  return distance <= 1 || page === 1 || page === totalPages
+                })
+                .map((page, index, visiblePages) => (
+                  <div key={page} className="flex items-center">
+                    {index > 0 && visiblePages[index - 1] !== page - 1 && (
+                      <span className="px-1 md:px-2 text-muted-foreground text-sm">...</span>
+                    )}
+                    <StatefulButton
+                      onClick={() => setCurrentPage(page)}
+                      className={`px-2 md:px-3 py-2 text-sm md:text-base ${currentPage === page
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                        }`}
+                    >
+                      {page}
+                    </StatefulButton>
+                  </div>
+                ))}
+            </div>
+
+            <StatefulButton
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-2 md:px-3 py-2 bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50"
+            >
+              <Icon icon="mdi:chevron-right" className="text-sm md:text-lg" />
+            </StatefulButton>
+          </div>
+        )}
+
         {filteredProfiles.length > 0 && (
           <div className="text-center text-base text-muted-foreground">
-            Showing {filteredProfiles.length} developer{filteredProfiles.length !== 1 ? 's' : ''} 
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredProfiles.length)} of {filteredProfiles.length} developer{filteredProfiles.length !== 1 ? 's' : ''}
             {searchTerm && ` matching "${searchTerm}"`}
           </div>
         )}

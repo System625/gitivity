@@ -45,7 +45,7 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
+  --background: oklch(0.95 0.005 277.857);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -147,7 +147,6 @@
   }
 }
 
-/* Glowing Card Animations */
 @keyframes border-follow {
   0% {
     left: 0;
@@ -204,13 +203,4 @@
   100% {
     border-color: #3b82f6; 
   }
-}
-
-/* 3D Perspective for CometCard */
-.perspective-distant {
-  perspective: 1000px;
-}
-
-.transform-3d {
-  transform-style: preserve-3d;
 }
