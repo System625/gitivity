@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { Card, CardHeader, CardTitle, CardContent } from "./card"
 
 interface BentoCardProps {
   children: React.ReactNode
@@ -10,30 +11,32 @@ interface BentoCardProps {
 
 export function BentoCard({ children, title, icon, className }: BentoCardProps) {
   return (
-    <div
+    <Card
       className={cn(
-        "bg-[#2d314e] border border-white/10 rounded-2xl p-6",
-        "transition-all duration-200 hover:border-white/20",
+        "bg-card border-border rounded-2xl",
+        "transition-all duration-200 hover:border-border/80",
         className
       )}
     >
       {(title || icon) && (
-        <div className="flex items-center gap-3 mb-4">
-          {icon && (
-            <div className="text-[#7b3b4b] text-xl">
-              {icon}
-            </div>
-          )}
-          {title && (
-            <h3 className="text-white font-semibold text-lg">
-              {title}
-            </h3>
-          )}
-        </div>
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            {icon && (
+              <div className="text-primary text-xl">
+                {icon}
+              </div>
+            )}
+            {title && (
+              <CardTitle className="text-card-foreground font-semibold text-lg">
+                {title}
+              </CardTitle>
+            )}
+          </div>
+        </CardHeader>
       )}
-      <div className="text-white/80">
+      <CardContent className="text-card-foreground/80">
         {children}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }

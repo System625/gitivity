@@ -79,19 +79,19 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: #1a1d2e;
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: #242943;
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: #242943;
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary-foreground: #1a1d2e;
+  --secondary: #2a2f4a;
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
+  --muted: #2a2f4a;
   --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --accent: #2a2f4a;
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
@@ -102,11 +102,11 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: #242943;
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: #2a2f4a;
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
@@ -119,4 +119,98 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* View Transition API animations for theme switching */
+::view-transition-new(root) {
+  clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%);
+  animation: codeReveal 0.8s ease-out;
+}
+
+::view-transition-old(root),
+.dark::view-transition-old(root) {
+  animation: none;
+  z-index: -1;
+}
+
+.dark::view-transition-new(root) {
+  clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%);
+  animation: codeReveal 0.8s ease-out;
+}
+
+@keyframes codeReveal {
+  0% {
+    clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%);
+  }
+  100% {
+    clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%);
+  }
+}
+
+/* Glowing Card Animations */
+@keyframes border-follow {
+  0% {
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+  }
+  25% {
+    left: 100%;
+    top: 0;
+    transform: translate(-50%, -50%);
+  }
+  50% {
+    left: 100%;
+    top: 100%;
+    transform: translate(-50%, -50%);
+  }
+  75% {
+    left: 0;
+    top: 100%;
+    transform: translate(-50%, -50%);
+  }
+  100% {
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes color-change {
+  0% {
+    color: #3b82f6; 
+  }
+  33% {
+    color: #ef4444;
+  }
+  66% {
+    color: #22c55e;
+  }
+  100% {
+    color: #3b82f6; 
+  }
+}
+
+@keyframes border-color-change {
+  0% {
+    border-color: #3b82f6; 
+  }
+  33% {
+    border-color: #ef4444;
+  }
+  66% {
+    border-color: #22c55e;
+  }
+  100% {
+    border-color: #3b82f6; 
+  }
+}
+
+/* 3D Perspective for CometCard */
+.perspective-distant {
+  perspective: 1000px;
+}
+
+.transform-3d {
+  transform-style: preserve-3d;
 }
