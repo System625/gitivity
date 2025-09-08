@@ -36,20 +36,17 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       await new Promise(resolve => setTimeout(resolve, 300))
 
       const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: null, // Transparent background
-        scale: 2, // Higher quality
-        useCORS: true, // Enable CORS for external images
-        allowTaint: true, // Allow tainted canvas
+        backgroundColor: '#1e293b',
+        scale: 1.5,
+        useCORS: true,
+        allowTaint: true,
         foreignObjectRendering: false,
         imageTimeout: 10000,
-        removeContainer: false,
         logging: false,
         onclone: (clonedDoc) => {
-          // Ensure all images are loaded in the cloned document
           const images = clonedDoc.querySelectorAll('img')
           images.forEach(img => {
-            img.style.maxWidth = '100%'
-            img.style.height = 'auto'
+            img.crossOrigin = 'anonymous'
           })
         }
       })
