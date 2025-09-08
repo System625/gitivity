@@ -47,7 +47,28 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     }
   }
   
-  const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
+  const [state, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
+    onStart: async () => {
+      console.log('Starting image capture...')
+      // Ensure avatar image is loaded and canvas-ready
+      if (profile.avatarUrl && cardRef.current) {
+        const avatarImg = cardRef.current.querySelector('img') as HTMLImageElement
+        if (avatarImg && avatarImg.alt === profile.username) {
+          // Wait for the image to be fully loaded and drawable
+          await new Promise<void>((resolve) => {
+            if (avatarImg.complete && avatarImg.naturalHeight !== 0) {
+              resolve()
+            } else {
+              avatarImg.onload = () => resolve()
+              avatarImg.onerror = () => resolve()
+            }
+          })
+          // Additional wait for mobile devices
+          const config = getDownloadConfig()
+          await new Promise(resolve => setTimeout(resolve, config.isMobile ? 500 : 200))
+        }
+      }
+    },
     onSuccess: (data) => {
       const link = document.createElement('a')
       link.download = `${profile.username}-gitivity-profile.png`
@@ -183,15 +204,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
         }
       })
       
-      // Wait for avatar image to load before capture - more reliable selector
-      const avatarImg = cardElement.querySelector('img') as HTMLImageElement
-      if (avatarImg && avatarImg.alt === profile.username) {
-        await waitForImageLoad(avatarImg)
-        // Additional wait to ensure the image is fully rendered in the DOM
-        await new Promise(resolve => setTimeout(resolve, config.isMobile ? 300 : 150))
-      }
-      
-      // Wait for styles to apply
+      // Wait for styles to apply - image loading is handled in onStart callback
       await new Promise(resolve => setTimeout(resolve, config.isMobile ? 200 : 100))
       
       await convertToPng()
