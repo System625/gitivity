@@ -66,6 +66,32 @@ interface GitivityProfile {
   avatarUrl: string | null
   createdAt: Date
   updatedAt: Date
+  rank?: number
+  totalUsers?: number
+}
+
+async function getUserRank(userScore: number, username: string): Promise<{ rank: number; totalUsers: number }> {
+  try {
+    // Count users with scores higher than current user
+    const higherScoreCount = await prisma.gitivityProfile.count({
+      where: {
+        score: {
+          gt: userScore
+        }
+      }
+    })
+
+    // Count total users in database
+    const totalUsers = await prisma.gitivityProfile.count()
+
+    // Rank is position (1-based, so add 1)
+    const rank = higherScoreCount + 1
+
+    return { rank, totalUsers }
+  } catch (error) {
+    console.error('Error calculating user rank:', error)
+    return { rank: 0, totalUsers: 0 }
+  }
 }
 
 function calculateGitivityScore(data: GitHubProfileData): GitivityScoreBreakdown {
@@ -458,8 +484,15 @@ export async function analyzeUser(username: string): Promise<GitivityProfile | n
       }
     })
 
-    // Step 5: Return Result
-    return profile as unknown as GitivityProfile
+    // Step 5: Calculate Rank
+    const { rank, totalUsers } = await getUserRank(scoreBreakdown.total, username)
+    
+    // Step 6: Return Result with rank information
+    return {
+      ...profile,
+      rank,
+      totalUsers
+    } as unknown as GitivityProfile
 
   } catch (error) {
     console.error('Error in analyzeUser:', error)

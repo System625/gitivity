@@ -184,7 +184,7 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
                             <Icon
                               icon={
                                 rank === 1
-                                  ? 'emojione:sports-medal'
+                                  ? 'noto:trophy'
                                   : rank === 2
                                     ? 'emojione:2nd-place-medal'
                                     : 'emojione:3rd-place-medal'

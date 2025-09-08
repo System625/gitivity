@@ -14,11 +14,13 @@ export const CometCard = ({
   translateDepth = 10,
   className,
   children,
+  isStatic = false,
 }: {
   rotateDepth?: number;
   translateDepth?: number;
   className?: string;
   children: React.ReactNode;
+  isStatic?: boolean;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -56,7 +58,7 @@ export const CometCard = ({
   const glareBackground = useMotionTemplate`radial-gradient(circle at ${glareX}% ${glareY}%, rgba(255, 255, 255, 0.9) 10%, rgba(255, 255, 255, 0.75) 20%, rgba(255, 255, 255, 0) 80%)`;
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!ref.current) return;
+    if (!ref.current || isStatic) return;
 
     const rect = ref.current.getBoundingClientRect();
 
@@ -74,6 +76,7 @@ export const CometCard = ({
   };
 
   const handleMouseLeave = () => {
+    if (isStatic) return;
     x.set(0);
     y.set(0);
   };
@@ -93,7 +96,7 @@ export const CometCard = ({
             "rgba(0, 0, 0, 0.01) 0px 520px 146px 0px, rgba(0, 0, 0, 0.04) 0px 333px 133px 0px, rgba(0, 0, 0, 0.26) 0px 83px 83px 0px, rgba(0, 0, 0, 0.29) 0px 21px 46px 0px",
         }}
         initial={{ scale: 1, z: 0 }}
-        whileHover={{
+        whileHover={isStatic ? {} : {
           scale: 1.05,
           z: 50,
           transition: { duration: 0.2 },
