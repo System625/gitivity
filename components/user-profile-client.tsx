@@ -7,7 +7,7 @@ import { LanguagesOrbitalTimeline } from "@/components/ui/languages-orbital-time
 import { CopyLinkButton } from "@/components/copy-link-button"
 import { Icon } from "@iconify/react"
 import Image from "next/image"
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { useToPng } from "@hugocxl/react-to-image"
 import { GitivityStats } from "@/lib/analysis"
 
@@ -29,27 +29,8 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   
-  // Mobile detection utility
-  const isMobileDevice = () => {
-    if (typeof window === 'undefined') return false
-    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  }
-  
-  // Dynamic configuration based on device
-  const getDownloadConfig = () => {
-    const isMobile = isMobileDevice()
-    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    
-    return {
-      pixelRatio: isMobile ? Math.max(devicePixelRatio, 3) : 2,
-      canvasWidth: isMobile ? 450 : 550,
-      canvasHeight: isMobile ? 900 : 600,
-      isMobile
-    }
-  }
-  
   // Convert image URL to data URL for mobile compatibility
-  const convertImageToDataUrl = (imageUrl: string): Promise<string> => {
+  const convertImageToDataUrl = useCallback((imageUrl: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new (window.Image)()
       img.crossOrigin = 'anonymous'
@@ -73,19 +54,48 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       }
       img.src = imageUrl
     })
+  }, [])
+  
+  // Preload avatar as data URL on component mount (mobile optimization)
+  useEffect(() => {
+    if (profile.avatarUrl) {
+      convertImageToDataUrl(profile.avatarUrl).then(setAvatarDataUrl)
+    }
+  }, [profile.avatarUrl, convertImageToDataUrl])
+  
+  // Mobile detection utility
+  const isMobileDevice = () => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
   }
-
+  
+  // Dynamic configuration based on device
+  const getDownloadConfig = () => {
+    const isMobile = isMobileDevice()
+    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    
+    return {
+      pixelRatio: isMobile ? Math.max(devicePixelRatio, 3) : 2,
+      canvasWidth: isMobile ? 450 : 550,
+      canvasHeight: isMobile ? 900 : 600,
+      isMobile
+    }
+  }
+  
   const [state, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
     onStart: async () => {
       console.log('Starting image capture...')
-      // Convert avatar to data URL for mobile compatibility
-      if (profile.avatarUrl && !avatarDataUrl) {
+      // Ensure we have the data URL ready (should already be preloaded)
+      if (!avatarDataUrl && profile.avatarUrl) {
+        console.warn('Data URL not preloaded, converting now...')
         const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
         setAvatarDataUrl(dataUrl)
+        // Wait for DOM to update with data URL
+        await new Promise(resolve => setTimeout(resolve, 500))
+      } else {
+        // Small wait to ensure DOM is stable
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
-      
-      // Wait for DOM to update with data URL
-      await new Promise(resolve => setTimeout(resolve, 300))
     },
     onSuccess: (data) => {
       const link = document.createElement('a')
@@ -94,14 +104,14 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       link.click()
       setIsStatic(false)
       setIsDownloadMode(false)
-      setAvatarDataUrl(null) // Reset for next download
+      // Keep avatarDataUrl for future downloads
     },
     onError: (error) => {
       console.error('Error downloading card:', error)
       alert('Failed to download the card. Please try again.')
       setIsStatic(false)
       setIsDownloadMode(false)
-      setAvatarDataUrl(null) // Reset for next download
+      // Keep avatarDataUrl for retry attempts
     },
     backgroundColor: undefined,
     pixelRatio: getDownloadConfig().pixelRatio,
