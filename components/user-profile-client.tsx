@@ -139,51 +139,19 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   }
   
   const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
-    onStart: async () => {
-      console.log('Starting image capture preparation...')
-      if (!cardRef.current) return
-
-      const avatarImg = cardRef.current.querySelector('img')
-      
-      // If there's an avatar and its src is not already a data URL, we process it.
-      if (avatarImg && profile.avatarUrl && !avatarImg.src.startsWith('data:')) {
-        console.log('Avatar needs conversion or loading, ensuring it is ready...')
-        
-        // Use the pre-converted URL if available, otherwise convert it now.
-        const dataUrl = avatarDataUrl || await convertImageToDataUrl(profile.avatarUrl)
-        
-        // This is the key: we create a promise that only resolves when the image
-        // has fully loaded its new source. This eliminates the race condition.
-        await new Promise((resolve, reject) => {
-          avatarImg.onload = resolve
-          avatarImg.onerror = reject
-          
-          // Set the src to the data URL to trigger the load.
-          // This ensures the DOM element being captured has the final image content.
-          avatarImg.src = dataUrl
-          setAvatarDataUrl(dataUrl) // Also update state for consistency
-        })
-        
-        console.log('Avatar is confirmed loaded. Proceeding with capture.')
-      } else {
-         console.log('Avatar is already a data URL or not present. Proceeding.')
-         // Even if loaded, a tiny delay helps ensure the final browser paint is done.
-         await new Promise(resolve => setTimeout(resolve, 100))
-      }
-    },
+    // REMOVE the onStart callback entirely.
+    // The preparation logic is now handled correctly before this is called.
     onSuccess: (data) => {
       const link = document.createElement('a')
       link.download = `${profile.username}-gitivity-profile.png`
       link.href = data
       link.click()
-      // Reset state *after* success
-      setIsStatic(false)
+      setIsStatic(false) // Cleanup on success
     },
     onError: (error) => {
       console.error('Error downloading card:', error)
       alert('Failed to download the card. Please try again.')
-      // Reset state *after* error
-      setIsStatic(false)
+      setIsStatic(false) // Cleanup on error
     },
     backgroundColor: undefined,
     pixelRatio: getDownloadConfig().pixelRatio,
@@ -203,19 +171,26 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   })
 
 
+  // THE PRIMARY FIX IS IN THIS FUNCTION
   const downloadCard = async () => {
-    // 1. Set the component into "static" mode for capture.
+    // 1. Ensure the avatar data URL is ready BEFORE switching to static mode.
+    // If we don't have it yet, we fetch and set it in the state.
+    if (!avatarDataUrl && profile.avatarUrl) {
+      const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
+      setAvatarDataUrl(dataUrl)
+    }
+
+    // 2. Set the component into "static" mode for the capture.
     setIsStatic(true)
 
-    // 2. Wait for React's next render cycle to apply the state change.
-    // A timeout of 0 pushes this to the back of the event queue, after the DOM update.
-    await new Promise(resolve => setTimeout(resolve, 0))
+    // 3. IMPORTANT: Wait for React to apply the state update and re-render the DOM.
+    // A short timeout pushes the next steps to the back of the browser's
+    // event queue, giving React time to render the static version of the card.
+    await new Promise(resolve => setTimeout(resolve, 100))
 
-    // 3. Trigger the conversion. The robust `onStart` will handle the rest.
+    // 4. Now that the DOM is stable and the <img> tag has the correct data URL,
+    // we can safely trigger the conversion.
     await convertToPng()
-    
-    // The state cleanup (setIsStatic(false)) is now handled in onSuccess/onError
-    // to prevent the card from flickering back to normal before the download is initiated.
   }
 
   return (
