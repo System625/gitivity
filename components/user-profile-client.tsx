@@ -269,8 +269,8 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                       <div className="text-lg font-bold text-[#7b3b4b] mb-1">
                         {stats.scoreBreakdown.creatorScore}
                       </div>
-                      <div className="text-foreground font-semibold text-xs mb-1">Creator</div>
-                      <div className="text-muted-foreground text-xs">Personal impact</div>
+                      <div className="text-foreground font-semibold text-[10px] md:text-xs mb-1">Creator</div>
+                      <div className="text-muted-foreground text-[10px] md:text-xs">Personal impact</div>
                     </div>
                     <div className="text-center p-2 bg-muted/30 rounded-lg">
                       <div className="flex items-center justify-center mb-2">
@@ -279,8 +279,8 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                       <div className="text-lg font-bold text-[#7b3b4b] mb-1">
                         {stats.scoreBreakdown.collaboratorScore}
                       </div>
-                      <div className="text-foreground font-semibold text-xs mb-1">Collaborator</div>
-                      <div className="text-muted-foreground text-xs">Open source</div>
+                      <div className="text-foreground font-semibold text-[10px] md:text-xs mb-1">Collaborator</div>
+                      <div className="text-muted-foreground text-[10px] md:text-xs">Open source</div>
                     </div>
                     <div className="text-center p-2 bg-muted/30 rounded-lg">
                       <div className="flex items-center justify-center mb-2">
@@ -289,8 +289,8 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                       <div className="text-lg font-bold text-[#7b3b4b] mb-1">
                         {stats.scoreBreakdown.craftsmanshipScore}
                       </div>
-                      <div className="text-foreground font-semibold text-xs mb-1">Craftsmanship</div>
-                      <div className="text-muted-foreground text-xs">Quality</div>
+                      <div className="text-foreground font-semibold text-[10px] md:text-xs mb-1">Craftsmanship</div>
+                      <div className="text-muted-foreground text-[10px] md:text-xs">Quality</div>
                     </div>
                   </div>
                 </div>
