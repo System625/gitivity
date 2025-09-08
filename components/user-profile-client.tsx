@@ -183,10 +183,12 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
         }
       })
       
-      // Wait for avatar image to load before capture
-      const avatarImg = cardElement.querySelector('img[alt="' + profile.username + '"]') as HTMLImageElement
-      if (avatarImg) {
+      // Wait for avatar image to load before capture - more reliable selector
+      const avatarImg = cardElement.querySelector('img') as HTMLImageElement
+      if (avatarImg && avatarImg.alt === profile.username) {
         await waitForImageLoad(avatarImg)
+        // Additional wait to ensure the image is fully rendered in the DOM
+        await new Promise(resolve => setTimeout(resolve, config.isMobile ? 300 : 150))
       }
       
       // Wait for styles to apply
@@ -245,14 +247,26 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
               <div className="text-center space-y-3 mb-4">
                 <div className="flex items-center justify-center gap-3">
                   {profile.avatarUrl && (
-                    <Image
-                      src={profile.avatarUrl}
-                      alt={profile.username}
-                      width={60}
-                      height={60}
-                      priority
-                      className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
-                    />
+                    isStatic ? (
+                      <img
+                        src={profile.avatarUrl}
+                        alt={profile.username}
+                        width={60}
+                        height={60}
+                        crossOrigin="anonymous"
+                        className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
+                        style={{ width: '60px', height: '60px' }}
+                      />
+                    ) : (
+                      <Image
+                        src={profile.avatarUrl}
+                        alt={profile.username}
+                        width={60}
+                        height={60}
+                        priority
+                        className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
+                      />
+                    )
                   )}
                   <div>
                     <h1 className="text-2xl font-bold text-foreground">{stats?.name || profile.username}</h1>
