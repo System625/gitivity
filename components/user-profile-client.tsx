@@ -33,25 +33,71 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const convertImageToDataUrl = useCallback((imageUrl: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new (window.Image)()
+      
+      // Set crossOrigin before setting src to handle CORS properly
       img.crossOrigin = 'anonymous'
+      
       img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
-        canvas.width = img.width
-        canvas.height = img.height
-        ctx?.drawImage(img, 0, 0)
         try {
-          const dataUrl = canvas.toDataURL('image/png')
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          
+          if (!ctx) {
+            console.warn('Failed to get canvas context')
+            resolve(imageUrl)
+            return
+          }
+          
+          // Set canvas dimensions to match image
+          canvas.width = img.naturalWidth || img.width
+          canvas.height = img.naturalHeight || img.height
+          
+          // Draw the image to canvas
+          ctx.drawImage(img, 0, 0)
+          
+          // Convert to data URL with high quality
+          const dataUrl = canvas.toDataURL('image/png', 1.0)
+          console.log('Successfully converted avatar to data URL')
           resolve(dataUrl)
         } catch (error) {
-          console.warn('Failed to convert to data URL, using original:', error)
-          resolve(imageUrl) // Fallback to original URL
+          console.warn('Failed to convert to data URL:', error)
+          // Fallback to original URL on conversion failure
+          resolve(imageUrl)
         }
       }
-      img.onerror = () => {
-        console.warn('Failed to load image for data URL conversion')
-        resolve(imageUrl) // Fallback to original URL
+      
+      img.onerror = (error) => {
+        console.warn('Failed to load image for data URL conversion:', error)
+        // Try without crossOrigin for mobile compatibility
+        const fallbackImg = new (window.Image)()
+        fallbackImg.onload = () => {
+          try {
+            const canvas = document.createElement('canvas')
+            const ctx = canvas.getContext('2d')
+            if (!ctx) {
+              resolve(imageUrl)
+              return
+            }
+            canvas.width = fallbackImg.naturalWidth || fallbackImg.width
+            canvas.height = fallbackImg.naturalHeight || fallbackImg.height
+            ctx.drawImage(fallbackImg, 0, 0)
+            const dataUrl = canvas.toDataURL('image/png', 1.0)
+            resolve(dataUrl)
+          } catch (fallbackError) {
+            console.warn('Fallback conversion also failed:', fallbackError)
+            resolve(imageUrl)
+          }
+        }
+        fallbackImg.onerror = () => resolve(imageUrl)
+        fallbackImg.src = imageUrl
       }
+      
+      // Add timeout to prevent hanging
+      setTimeout(() => {
+        console.warn('Avatar conversion timed out, using original URL')
+        resolve(imageUrl)
+      }, 10000)
+      
       img.src = imageUrl
     })
   }, [])
@@ -66,7 +112,18 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   // Mobile detection utility
   const isMobileDevice = () => {
     if (typeof window === 'undefined') return false
-    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    
+    // Check for mobile user agents
+    const userAgent = navigator.userAgent
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(userAgent)
+    
+    // Check for mobile screen size
+    const isMobileScreen = window.innerWidth <= 768
+    
+    // Check for touch device
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    
+    return isMobileUA || (isMobileScreen && isTouchDevice)
   }
   
   // Dynamic configuration based on device
@@ -82,20 +139,36 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     }
   }
   
-  const [state, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
+  const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
     onStart: async () => {
       console.log('Starting image capture...')
-      // Ensure we have the data URL ready (should already be preloaded)
-      if (!avatarDataUrl && profile.avatarUrl) {
-        console.warn('Data URL not preloaded, converting now...')
+      const isMobile = isMobileDevice()
+      
+      // Ensure we have the data URL ready - always convert on mobile for better compatibility
+      if ((!avatarDataUrl || isMobile) && profile.avatarUrl) {
+        console.log('Converting avatar to data URL for capture...')
         const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
         setAvatarDataUrl(dataUrl)
-        // Wait for DOM to update with data URL
-        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Wait longer for mobile devices to ensure data URL is applied
+        const waitTime = isMobile ? 1000 : 500
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+        
+        // Verify the avatar element has the data URL
+        if (cardRef.current) {
+          const avatarImg = cardRef.current.querySelector('img')
+          if (avatarImg && dataUrl !== profile.avatarUrl) {
+            avatarImg.src = dataUrl
+            // Wait for the new src to load
+            await new Promise(resolve => setTimeout(resolve, 200))
+          }
+        }
       } else {
         // Small wait to ensure DOM is stable
-        await new Promise(resolve => setTimeout(resolve, 100))
+        await new Promise(resolve => setTimeout(resolve, isMobile ? 300 : 100))
       }
+      
+      console.log('Image capture preparation complete')
     },
     onSuccess: (data) => {
       const link = document.createElement('a')
@@ -130,17 +203,6 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     canvasHeight: getDownloadConfig().canvasHeight
   })
 
-  // Function to wait for image loading
-  const waitForImageLoad = (imageElement: HTMLImageElement): Promise<void> => {
-    return new Promise((resolve) => {
-      if (imageElement.complete && imageElement.naturalHeight !== 0) {
-        resolve()
-      } else {
-        imageElement.onload = () => resolve()
-        imageElement.onerror = () => resolve() // Resolve even on error to avoid hanging
-      }
-    })
-  }
 
   const downloadCard = async () => {
     setIsStatic(true)
@@ -151,8 +213,16 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches || 
                       document.documentElement.classList.contains('dark')
     
+    // For mobile devices, ensure avatar is converted to data URL before download
+    if (config.isMobile && profile.avatarUrl && !avatarDataUrl) {
+      console.log('Mobile device detected, converting avatar to data URL...')
+      const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
+      setAvatarDataUrl(dataUrl)
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+    
     // Wait longer on mobile devices for image loading
-    const waitTime = config.isMobile ? 800 : 300
+    const waitTime = config.isMobile ? 1000 : 300
     await new Promise(resolve => setTimeout(resolve, waitTime))
     
     if (!cardRef.current) {
@@ -162,8 +232,6 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
 
     const cardElement = cardRef.current
     
-    // Get actual content dimensions for better canvas sizing
-    const rect = cardElement.getBoundingClientRect()   
     const originalStyles = {
       boxShadow: cardElement.style.boxShadow,
       border: cardElement.style.border,
@@ -297,7 +365,14 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                         width={60}
                         height={60}
                         className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
-                        style={{ width: '60px', height: '60px' }}
+                        style={{ 
+                          width: '60px', 
+                          height: '60px',
+                          objectFit: 'cover',
+                          display: 'block'
+                        }}
+                        crossOrigin="anonymous"
+                        loading="eager"
                       />
                     ) : (
                       <Image
