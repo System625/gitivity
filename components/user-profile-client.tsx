@@ -28,12 +28,99 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
 
-  // Convert image URL to data URL for mobile compatibility
-  const convertImageToDataUrl = useCallback((imageUrl: string): Promise<string> => {
+  // Fetch avatar and convert to data URL - more reliable for mobile
+  const fetchAvatarAsDataUrl = useCallback(async (imageUrl: string): Promise<string> => {
+    const isMobile = isMobileDevice()
+    
+    try {
+      console.log('Fetching avatar directly:', imageUrl, 'Mobile:', isMobile)
+      
+      // For mobile devices, try multiple approaches
+      const fetchUrls = [imageUrl]
+      
+      // Add proxy approaches for mobile
+      if (isMobile && imageUrl.includes('githubusercontent.com')) {
+        // Try with different size parameters that might have better CORS
+        const baseUrl = imageUrl.split('?')[0]
+        fetchUrls.push(`${baseUrl}?s=120&v=4`)
+        fetchUrls.push(`${baseUrl}?s=200&v=4`)
+      }
+      
+      let response: Response | null = null
+      let usedUrl = ''
+      
+      // Try each URL
+      for (const url of fetchUrls) {
+        try {
+          console.log('Trying fetch with URL:', url)
+          response = await fetch(url, {
+            mode: 'cors',
+            cache: 'force-cache',
+            headers: {
+              'Accept': 'image/*'
+            }
+          })
+          
+          if (response.ok) {
+            usedUrl = url
+            break
+          }
+        } catch (error) {
+          console.log('CORS fetch failed for:', url, error)
+        }
+      }
+      
+      // If CORS failed, try no-cors as last resort
+      if (!response || !response.ok) {
+        console.log('All CORS attempts failed, trying no-cors')
+        try {
+          response = await fetch(imageUrl, {
+            mode: 'no-cors',
+            cache: 'force-cache'
+          })
+          usedUrl = imageUrl
+        } catch (error) {
+          throw new Error(`All fetch attempts failed: ${error}`)
+        }
+      }
+      
+      // Convert response to blob
+      const blob = await response.blob()
+      console.log('Successfully fetched avatar blob from:', usedUrl, 'Size:', blob.size, 'Type:', blob.type)
+      
+      // For no-cors responses, blob might be empty, check size
+      if (blob.size === 0) {
+        console.warn('Blob is empty, likely due to no-cors, falling back to canvas')
+        throw new Error('Empty blob from no-cors fetch')
+      }
+      
+      // Convert blob to data URL
+      return new Promise((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          console.log('Successfully converted blob to data URL, length:', dataUrl.length)
+          resolve(dataUrl)
+        }
+        reader.onerror = (error) => {
+          console.warn('FileReader failed:', error, 'falling back to canvas approach')
+          resolve(convertImageToCanvas(imageUrl))
+        }
+        reader.readAsDataURL(blob)
+      })
+      
+    } catch (error) {
+      console.warn('All fetch approaches failed:', error, 'falling back to canvas')
+      return convertImageToCanvas(imageUrl)
+    }
+  }, [isMobileDevice, convertImageToCanvas])
+
+  // Fallback canvas conversion method
+  const convertImageToCanvas = useCallback((imageUrl: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new (window.Image)()
       
-      // Set crossOrigin before setting src to handle CORS properly
+      // Set crossOrigin before setting src
       img.crossOrigin = 'anonymous'
       
       img.onload = () => {
@@ -54,46 +141,24 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
           // Draw the image to canvas
           ctx.drawImage(img, 0, 0)
           
-          // Convert to data URL with high quality
+          // Convert to data URL
           const dataUrl = canvas.toDataURL('image/png', 1.0)
-          console.log('Successfully converted avatar to data URL')
+          console.log('Canvas conversion successful')
           resolve(dataUrl)
         } catch (error) {
-          console.warn('Failed to convert to data URL:', error)
-          // Fallback to original URL on conversion failure
+          console.warn('Canvas conversion failed:', error)
           resolve(imageUrl)
         }
       }
       
-      img.onerror = (error) => {
-        console.warn('Failed to load image for data URL conversion:', error)
-        // Try without crossOrigin for mobile compatibility
-        const fallbackImg = new (window.Image)()
-        fallbackImg.onload = () => {
-          try {
-            const canvas = document.createElement('canvas')
-            const ctx = canvas.getContext('2d')
-            if (!ctx) {
-              resolve(imageUrl)
-              return
-            }
-            canvas.width = fallbackImg.naturalWidth || fallbackImg.width
-            canvas.height = fallbackImg.naturalHeight || fallbackImg.height
-            ctx.drawImage(fallbackImg, 0, 0)
-            const dataUrl = canvas.toDataURL('image/png', 1.0)
-            resolve(dataUrl)
-          } catch (fallbackError) {
-            console.warn('Fallback conversion also failed:', fallbackError)
-            resolve(imageUrl)
-          }
-        }
-        fallbackImg.onerror = () => resolve(imageUrl)
-        fallbackImg.src = imageUrl
+      img.onerror = () => {
+        console.warn('Image load failed, using original URL')
+        resolve(imageUrl)
       }
       
-      // Add timeout to prevent hanging
+      // Add timeout
       setTimeout(() => {
-        console.warn('Avatar conversion timed out, using original URL')
+        console.warn('Canvas conversion timed out')
         resolve(imageUrl)
       }, 10000)
       
@@ -104,12 +169,12 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   // Preload avatar as data URL on component mount (mobile optimization)
   useEffect(() => {
     if (profile.avatarUrl) {
-      convertImageToDataUrl(profile.avatarUrl).then(setAvatarDataUrl)
+      fetchAvatarAsDataUrl(profile.avatarUrl).then(setAvatarDataUrl)
     }
-  }, [profile.avatarUrl, convertImageToDataUrl])
+  }, [profile.avatarUrl, fetchAvatarAsDataUrl])
   
   // Mobile detection utility
-  const isMobileDevice = () => {
+  const isMobileDevice = useCallback(() => {
     if (typeof window === 'undefined') return false
     
     // Check for mobile user agents
@@ -123,7 +188,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
     
     return isMobileUA || (isMobileScreen && isTouchDevice)
-  }
+  }, [])
   
   // Dynamic configuration based on device
   const getDownloadConfig = () => {
@@ -173,8 +238,8 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       // Step 1: Prepare the avatar Data URL if it's not already available.
       let currentAvatarDataUrl = avatarDataUrl;
       if (!currentAvatarDataUrl && profile.avatarUrl) {
-        console.log('Avatar data URL not found, converting now...');
-        currentAvatarDataUrl = await convertImageToDataUrl(profile.avatarUrl);
+        console.log('Avatar data URL not found, fetching now...');
+        currentAvatarDataUrl = await fetchAvatarAsDataUrl(profile.avatarUrl);
         setAvatarDataUrl(currentAvatarDataUrl);
       }
 
