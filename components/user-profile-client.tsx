@@ -6,8 +6,9 @@ import { ProfileActions } from "@/components/profile-actions"
 import { LanguagesOrbitalTimeline } from "@/components/ui/languages-orbital-timeline"
 import { CopyLinkButton } from "@/components/copy-link-button"
 import { Icon } from "@iconify/react"
-import { useRef } from "react"
-import html2canvas from "html2canvas"
+import Image from "next/image"
+import { useState, useRef, useCallback } from "react"
+import { useToPng } from "@hugocxl/react-to-image"
 import { GitivityStats } from "@/lib/analysis"
 
 interface UserProfileClientProps {
@@ -23,46 +24,189 @@ interface UserProfileClientProps {
 }
 
 export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
+  const [isStatic, setIsStatic] = useState(false)
+  const [isDownloadMode, setIsDownloadMode] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
   const cardRef = useRef<HTMLDivElement>(null)
-
-  // Download card as image using html2canvas
-  const downloadCard = async () => {
-    if (!cardRef.current) return
-
-    try {
-      console.log('Starting card capture...')
-      
-      // Wait a bit for any animations or state changes to settle
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: '#1e293b',
-        scale: 1.5,
-        useCORS: true,
-        allowTaint: true,
-        foreignObjectRendering: false,
-        imageTimeout: 10000,
-        logging: false,
-        onclone: (clonedDoc) => {
-          const images = clonedDoc.querySelectorAll('img')
-          images.forEach(img => {
-            img.crossOrigin = 'anonymous'
-          })
-        }
-      })
-
-      // Download the image
+  
+  // Mobile detection utility
+  const isMobileDevice = () => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  }
+  
+  // Dynamic configuration based on device
+  const getDownloadConfig = () => {
+    const isMobile = isMobileDevice()
+    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    
+    return {
+      pixelRatio: isMobile ? Math.max(devicePixelRatio, 3) : 2,
+      canvasWidth: isMobile ? 450 : 550,
+      canvasHeight: isMobile ? 900 : 600,
+      isMobile
+    }
+  }
+  
+  const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
+    onSuccess: (data) => {
       const link = document.createElement('a')
       link.download = `${profile.username}-gitivity-profile.png`
-      link.href = canvas.toDataURL('image/png')
-      document.body.appendChild(link)
+      link.href = data
       link.click()
-      document.body.removeChild(link)
-      
-      console.log('Card download successful')
-    } catch (error) {
-      console.error('Failed to capture card as image:', error)
+      setIsStatic(false)
+      setIsDownloadMode(false)
+    },
+    onError: (error) => {
+      console.error('Error downloading card:', error)
       alert('Failed to download the card. Please try again.')
+      setIsStatic(false)
+      setIsDownloadMode(false)
+    },
+    backgroundColor: undefined,
+    pixelRatio: getDownloadConfig().pixelRatio,
+    style: {
+      borderRadius: '12px',
+      overflow: 'hidden'
+    },
+    filter: () => {
+      // Ensure we're capturing the styled version
+      return true
+    },
+    // Enhanced options for better CSS resolution
+    includeQueryParams: true,
+    skipAutoScale: false,
+    canvasWidth: getDownloadConfig().canvasWidth,
+    canvasHeight: getDownloadConfig().canvasHeight
+  })
+
+  const downloadCard = async () => {
+    setIsStatic(true)
+    setIsDownloadMode(true)
+    
+    // Get device and theme configuration
+    const config = getDownloadConfig()
+    const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches || 
+                      document.documentElement.classList.contains('dark')
+    
+    // Wait a moment for the static state to take effect
+    await new Promise(resolve => setTimeout(resolve, 300))
+    
+    if (!cardRef.current) {
+      convertToPng()
+      return
+    }
+
+    const cardElement = cardRef.current
+    
+    // Get actual content dimensions for better canvas sizing
+    const rect = cardElement.getBoundingClientRect()   
+    const originalStyles = {
+      boxShadow: cardElement.style.boxShadow,
+      border: cardElement.style.border,
+      background: cardElement.style.background,
+      fontSize: cardElement.style.fontSize,
+      padding: cardElement.style.padding
+    }
+
+    try {
+      // Apply mobile-specific enhancements
+      if (config.isMobile) {
+        // Enhanced mobile styling for better text readability
+        cardElement.style.fontSize = '110%'
+        cardElement.style.padding = '20px'
+        
+        // Stronger shadows and borders for mobile
+        if (isDarkMode) {
+          cardElement.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 0 0 2px rgba(255, 255, 255, 0.1)'
+          cardElement.style.border = '2px solid rgba(255, 255, 255, 0.2)'
+        } else {
+          cardElement.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1), inset 0 0 0 2px rgba(0, 0, 0, 0.1)'
+          cardElement.style.border = '2px solid rgba(0, 0, 0, 0.2)'
+          cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 248, 248, 1) 100%)'
+        }
+        
+        // Enhance mobile text elements
+        const headings = cardElement.querySelectorAll('h1, h2, h3')
+        const mobileTextStyles: { element: HTMLElement; originalFontWeight: string; originalFontSize: string }[] = []
+        
+        headings.forEach((heading: Element) => {
+          if (heading instanceof HTMLElement) {
+            mobileTextStyles.push({
+              element: heading,
+              originalFontWeight: heading.style.fontWeight,
+              originalFontSize: heading.style.fontSize
+            })
+            heading.style.fontWeight = 'bold'
+            heading.style.fontSize = '105%'
+          }
+        })
+        
+        // Store for cleanup
+        ;(cardElement as HTMLDivElement & { __mobileTextStyles?: typeof mobileTextStyles }).__mobileTextStyles = mobileTextStyles
+      }
+      
+      // Apply light mode enhancements (for non-mobile or additional mobile light mode)
+      if (!isDarkMode && !config.isMobile) {
+        cardElement.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.08)'
+        cardElement.style.border = '1px solid rgba(0, 0, 0, 0.15)'
+        cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 250, 250, 0.98) 100%)'
+      }
+
+      // Enhanced contrast for score sections and achievement cards
+      const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
+      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
+      
+      scoreSections.forEach((section: Element) => {
+        if (section instanceof HTMLElement) {
+          section.style.background = config.isMobile ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.06)'
+          section.style.border = config.isMobile ? '1px solid rgba(0, 0, 0, 0.12)' : '1px solid rgba(0, 0, 0, 0.08)'
+        }
+      })
+      
+      achievementCards.forEach((card: Element) => {
+        if (card instanceof HTMLElement) {
+          card.style.background = config.isMobile ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.05)'
+          card.style.border = config.isMobile ? '1px solid rgba(0, 0, 0, 0.15)' : '1px solid rgba(0, 0, 0, 0.1)'
+        }
+      })
+      
+      // Wait for styles to apply
+      await new Promise(resolve => setTimeout(resolve, config.isMobile ? 200 : 100))
+      
+      await convertToPng()
+      
+    } finally {
+      // Restore all original styling
+      Object.assign(cardElement.style, originalStyles)
+      
+      // Restore mobile text styles
+      const extendedCardElement = cardElement as HTMLDivElement & { __mobileTextStyles?: { element: HTMLElement; originalFontWeight: string; originalFontSize: string }[] }
+      const mobileTextStyles = extendedCardElement.__mobileTextStyles
+      if (mobileTextStyles) {
+        mobileTextStyles.forEach(({ element, originalFontWeight, originalFontSize }) => {
+          element.style.fontWeight = originalFontWeight
+          element.style.fontSize = originalFontSize
+        })
+        delete extendedCardElement.__mobileTextStyles
+      }
+      
+      // Restore score sections and achievement cards
+      const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
+      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
+      
+      scoreSections.forEach((section: Element) => {
+        if (section instanceof HTMLElement) {
+          section.style.background = ''
+          section.style.border = ''
+        }
+      })
+      
+      achievementCards.forEach((card: Element) => {
+        if (card instanceof HTMLElement) {
+          card.style.background = ''
+          card.style.border = ''
+        }
+      })
     }
   }
 
@@ -72,26 +216,22 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Main Profile Card - Left Side */}
         <div className="lg:w-1/2">
-          <CometCard className="comet-card-container">
+          <CometCard className="comet-card-container" isStatic={isStatic}>
             <div className="bg-card rounded-[12px] border border-border shadow-sm p-4 w-full">
-              <div ref={cardRef} className="bg-card rounded-[12px] border border-border shadow-sm p-4">
+              <div ref={(node) => {
+                if (node) cardRefCallback(node)
+                cardRef.current = node
+              }} className="bg-card rounded-[12px] border border-border shadow-sm p-4">
               {/* Header Section */}
               <div className="text-center space-y-3 mb-4">
                 <div className="flex items-center justify-center gap-3">
                   {profile.avatarUrl && (
-                    <img
+                    <Image
                       src={profile.avatarUrl}
                       alt={profile.username}
                       width={60}
                       height={60}
                       className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
-                      style={{ 
-                        width: '60px', 
-                        height: '60px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                      crossOrigin="anonymous"
                     />
                   )}
                   <div>
