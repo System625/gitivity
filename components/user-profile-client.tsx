@@ -26,6 +26,7 @@ interface UserProfileClientProps {
 export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [isStatic, setIsStatic] = useState(false)
   const [isDownloadMode, setIsDownloadMode] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   
   // Mobile detection utility
@@ -47,27 +48,44 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     }
   }
   
+  // Convert image URL to data URL for mobile compatibility
+  const convertImageToDataUrl = (imageUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        canvas.width = img.width
+        canvas.height = img.height
+        ctx?.drawImage(img, 0, 0)
+        try {
+          const dataUrl = canvas.toDataURL('image/png')
+          resolve(dataUrl)
+        } catch (error) {
+          console.warn('Failed to convert to data URL, using original:', error)
+          resolve(imageUrl) // Fallback to original URL
+        }
+      }
+      img.onerror = () => {
+        console.warn('Failed to load image for data URL conversion')
+        resolve(imageUrl) // Fallback to original URL
+      }
+      img.src = imageUrl
+    })
+  }
+
   const [state, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
     onStart: async () => {
       console.log('Starting image capture...')
-      // Ensure avatar image is loaded and canvas-ready
-      if (profile.avatarUrl && cardRef.current) {
-        const avatarImg = cardRef.current.querySelector('img') as HTMLImageElement
-        if (avatarImg && avatarImg.alt === profile.username) {
-          // Wait for the image to be fully loaded and drawable
-          await new Promise<void>((resolve) => {
-            if (avatarImg.complete && avatarImg.naturalHeight !== 0) {
-              resolve()
-            } else {
-              avatarImg.onload = () => resolve()
-              avatarImg.onerror = () => resolve()
-            }
-          })
-          // Additional wait for mobile devices
-          const config = getDownloadConfig()
-          await new Promise(resolve => setTimeout(resolve, config.isMobile ? 500 : 200))
-        }
+      // Convert avatar to data URL for mobile compatibility
+      if (profile.avatarUrl && !avatarDataUrl) {
+        const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
+        setAvatarDataUrl(dataUrl)
       }
+      
+      // Wait for DOM to update with data URL
+      await new Promise(resolve => setTimeout(resolve, 300))
     },
     onSuccess: (data) => {
       const link = document.createElement('a')
@@ -76,12 +94,14 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       link.click()
       setIsStatic(false)
       setIsDownloadMode(false)
+      setAvatarDataUrl(null) // Reset for next download
     },
     onError: (error) => {
       console.error('Error downloading card:', error)
       alert('Failed to download the card. Please try again.')
       setIsStatic(false)
       setIsDownloadMode(false)
+      setAvatarDataUrl(null) // Reset for next download
     },
     backgroundColor: undefined,
     pixelRatio: getDownloadConfig().pixelRatio,
@@ -262,11 +282,10 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                   {profile.avatarUrl && (
                     isStatic ? (
                       <img
-                        src={profile.avatarUrl}
+                        src={avatarDataUrl || profile.avatarUrl}
                         alt={profile.username}
                         width={60}
                         height={60}
-                        crossOrigin="anonymous"
                         className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
                         style={{ width: '60px', height: '60px' }}
                       />
