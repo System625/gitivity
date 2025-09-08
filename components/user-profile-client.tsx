@@ -25,7 +25,6 @@ interface UserProfileClientProps {
 
 export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [isStatic, setIsStatic] = useState(false)
-  const [isDownloadMode, setIsDownloadMode] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   
@@ -141,50 +140,50 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   
   const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
     onStart: async () => {
-      console.log('Starting image capture...')
-      const isMobile = isMobileDevice()
+      console.log('Starting image capture preparation...')
+      if (!cardRef.current) return
+
+      const avatarImg = cardRef.current.querySelector('img')
       
-      // Ensure we have the data URL ready - always convert on mobile for better compatibility
-      if ((!avatarDataUrl || isMobile) && profile.avatarUrl) {
-        console.log('Converting avatar to data URL for capture...')
-        const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
-        setAvatarDataUrl(dataUrl)
+      // If there's an avatar and its src is not already a data URL, we process it.
+      if (avatarImg && profile.avatarUrl && !avatarImg.src.startsWith('data:')) {
+        console.log('Avatar needs conversion or loading, ensuring it is ready...')
         
-        // Wait longer for mobile devices to ensure data URL is applied
-        const waitTime = isMobile ? 1000 : 500
-        await new Promise(resolve => setTimeout(resolve, waitTime))
+        // Use the pre-converted URL if available, otherwise convert it now.
+        const dataUrl = avatarDataUrl || await convertImageToDataUrl(profile.avatarUrl)
         
-        // Verify the avatar element has the data URL
-        if (cardRef.current) {
-          const avatarImg = cardRef.current.querySelector('img')
-          if (avatarImg && dataUrl !== profile.avatarUrl) {
-            avatarImg.src = dataUrl
-            // Wait for the new src to load
-            await new Promise(resolve => setTimeout(resolve, 200))
-          }
-        }
+        // This is the key: we create a promise that only resolves when the image
+        // has fully loaded its new source. This eliminates the race condition.
+        await new Promise((resolve, reject) => {
+          avatarImg.onload = resolve
+          avatarImg.onerror = reject
+          
+          // Set the src to the data URL to trigger the load.
+          // This ensures the DOM element being captured has the final image content.
+          avatarImg.src = dataUrl
+          setAvatarDataUrl(dataUrl) // Also update state for consistency
+        })
+        
+        console.log('Avatar is confirmed loaded. Proceeding with capture.')
       } else {
-        // Small wait to ensure DOM is stable
-        await new Promise(resolve => setTimeout(resolve, isMobile ? 300 : 100))
+         console.log('Avatar is already a data URL or not present. Proceeding.')
+         // Even if loaded, a tiny delay helps ensure the final browser paint is done.
+         await new Promise(resolve => setTimeout(resolve, 100))
       }
-      
-      console.log('Image capture preparation complete')
     },
     onSuccess: (data) => {
       const link = document.createElement('a')
       link.download = `${profile.username}-gitivity-profile.png`
       link.href = data
       link.click()
+      // Reset state *after* success
       setIsStatic(false)
-      setIsDownloadMode(false)
-      // Keep avatarDataUrl for future downloads
     },
     onError: (error) => {
       console.error('Error downloading card:', error)
       alert('Failed to download the card. Please try again.')
+      // Reset state *after* error
       setIsStatic(false)
-      setIsDownloadMode(false)
-      // Keep avatarDataUrl for retry attempts
     },
     backgroundColor: undefined,
     pixelRatio: getDownloadConfig().pixelRatio,
@@ -205,141 +204,18 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
 
 
   const downloadCard = async () => {
+    // 1. Set the component into "static" mode for capture.
     setIsStatic(true)
-    setIsDownloadMode(true)
-    
-    // Get device and theme configuration
-    const config = getDownloadConfig()
-    const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches || 
-                      document.documentElement.classList.contains('dark')
-    
-    // For mobile devices, ensure avatar is converted to data URL before download
-    if (config.isMobile && profile.avatarUrl && !avatarDataUrl) {
-      console.log('Mobile device detected, converting avatar to data URL...')
-      const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
-      setAvatarDataUrl(dataUrl)
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
-    
-    // Wait longer on mobile devices for image loading
-    const waitTime = config.isMobile ? 1000 : 300
-    await new Promise(resolve => setTimeout(resolve, waitTime))
-    
-    if (!cardRef.current) {
-      convertToPng()
-      return
-    }
 
-    const cardElement = cardRef.current
+    // 2. Wait for React's next render cycle to apply the state change.
+    // A timeout of 0 pushes this to the back of the event queue, after the DOM update.
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    // 3. Trigger the conversion. The robust `onStart` will handle the rest.
+    await convertToPng()
     
-    const originalStyles = {
-      boxShadow: cardElement.style.boxShadow,
-      border: cardElement.style.border,
-      background: cardElement.style.background,
-      fontSize: cardElement.style.fontSize,
-      padding: cardElement.style.padding
-    }
-
-    try {
-      // Apply mobile-specific enhancements
-      if (config.isMobile) {
-        // Enhanced mobile styling for better text readability
-        cardElement.style.fontSize = '110%'
-        cardElement.style.padding = '20px'
-        
-        // Stronger shadows and borders for mobile
-        if (isDarkMode) {
-          cardElement.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 0 0 2px rgba(255, 255, 255, 0.1)'
-          cardElement.style.border = '2px solid rgba(255, 255, 255, 0.2)'
-        } else {
-          cardElement.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1), inset 0 0 0 2px rgba(0, 0, 0, 0.1)'
-          cardElement.style.border = '2px solid rgba(0, 0, 0, 0.2)'
-          cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 248, 248, 1) 100%)'
-        }
-        
-        // Enhance mobile text elements
-        const headings = cardElement.querySelectorAll('h1, h2, h3')
-        const mobileTextStyles: { element: HTMLElement; originalFontWeight: string; originalFontSize: string }[] = []
-        
-        headings.forEach((heading: Element) => {
-          if (heading instanceof HTMLElement) {
-            mobileTextStyles.push({
-              element: heading,
-              originalFontWeight: heading.style.fontWeight,
-              originalFontSize: heading.style.fontSize
-            })
-            heading.style.fontWeight = 'bold'
-            heading.style.fontSize = '105%'
-          }
-        })
-        
-        // Store for cleanup
-        ;(cardElement as HTMLDivElement & { __mobileTextStyles?: typeof mobileTextStyles }).__mobileTextStyles = mobileTextStyles
-      }
-      
-      // Apply light mode enhancements (for non-mobile or additional mobile light mode)
-      if (!isDarkMode && !config.isMobile) {
-        cardElement.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.08)'
-        cardElement.style.border = '1px solid rgba(0, 0, 0, 0.15)'
-        cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 250, 250, 0.98) 100%)'
-      }
-
-      // Enhanced contrast for score sections and achievement cards
-      const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
-      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
-      
-      scoreSections.forEach((section: Element) => {
-        if (section instanceof HTMLElement) {
-          section.style.background = config.isMobile ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.06)'
-          section.style.border = config.isMobile ? '1px solid rgba(0, 0, 0, 0.12)' : '1px solid rgba(0, 0, 0, 0.08)'
-        }
-      })
-      
-      achievementCards.forEach((card: Element) => {
-        if (card instanceof HTMLElement) {
-          card.style.background = config.isMobile ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.05)'
-          card.style.border = config.isMobile ? '1px solid rgba(0, 0, 0, 0.15)' : '1px solid rgba(0, 0, 0, 0.1)'
-        }
-      })
-      
-      // Wait for styles to apply - image loading is handled in onStart callback
-      await new Promise(resolve => setTimeout(resolve, config.isMobile ? 200 : 100))
-      
-      await convertToPng()
-      
-    } finally {
-      // Restore all original styling
-      Object.assign(cardElement.style, originalStyles)
-      
-      // Restore mobile text styles
-      const extendedCardElement = cardElement as HTMLDivElement & { __mobileTextStyles?: { element: HTMLElement; originalFontWeight: string; originalFontSize: string }[] }
-      const mobileTextStyles = extendedCardElement.__mobileTextStyles
-      if (mobileTextStyles) {
-        mobileTextStyles.forEach(({ element, originalFontWeight, originalFontSize }) => {
-          element.style.fontWeight = originalFontWeight
-          element.style.fontSize = originalFontSize
-        })
-        delete extendedCardElement.__mobileTextStyles
-      }
-      
-      // Restore score sections and achievement cards
-      const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
-      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
-      
-      scoreSections.forEach((section: Element) => {
-        if (section instanceof HTMLElement) {
-          section.style.background = ''
-          section.style.border = ''
-        }
-      })
-      
-      achievementCards.forEach((card: Element) => {
-        if (card instanceof HTMLElement) {
-          card.style.background = ''
-          card.style.border = ''
-        }
-      })
-    }
+    // The state cleanup (setIsStatic(false)) is now handled in onSuccess/onError
+    // to prevent the card from flickering back to normal before the download is initiated.
   }
 
   return (
