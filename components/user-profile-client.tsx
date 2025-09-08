@@ -6,9 +6,8 @@ import { ProfileActions } from "@/components/profile-actions"
 import { LanguagesOrbitalTimeline } from "@/components/ui/languages-orbital-timeline"
 import { CopyLinkButton } from "@/components/copy-link-button"
 import { Icon } from "@iconify/react"
-import Image from "next/image"
-import { useState, useRef, useCallback, useEffect } from "react"
-import { useToPng } from "@hugocxl/react-to-image"
+import { useRef } from "react"
+import html2canvas from "html2canvas"
 import { GitivityStats } from "@/lib/analysis"
 
 interface UserProfileClientProps {
@@ -24,270 +23,51 @@ interface UserProfileClientProps {
 }
 
 export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
-  const [isStatic, setIsStatic] = useState(false)
-  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
 
-  // Mobile detection utility
-  const isMobileDevice = useCallback(() => {
-    if (typeof window === 'undefined') return false
-    
-    // Check for mobile user agents
-    const userAgent = navigator.userAgent
-    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(userAgent)
-    
-    // Check for mobile screen size
-    const isMobileScreen = window.innerWidth <= 768
-    
-    // Check for touch device
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-    
-    return isMobileUA || (isMobileScreen && isTouchDevice)
-  }, [])
+  // Download card as image using html2canvas
+  const downloadCard = async () => {
+    if (!cardRef.current) return
 
-  // Fallback canvas conversion method
-  const convertImageToCanvas = useCallback((imageUrl: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new (window.Image)()
-      
-      // Set crossOrigin before setting src
-      img.crossOrigin = 'anonymous'
-      
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas')
-          const ctx = canvas.getContext('2d')
-          
-          if (!ctx) {
-            console.warn('Failed to get canvas context')
-            resolve(imageUrl)
-            return
-          }
-          
-          // Set canvas dimensions to match image
-          canvas.width = img.naturalWidth || img.width
-          canvas.height = img.naturalHeight || img.height
-          
-          // Draw the image to canvas
-          ctx.drawImage(img, 0, 0)
-          
-          // Convert to data URL
-          const dataUrl = canvas.toDataURL('image/png', 1.0)
-          console.log('Canvas conversion successful')
-          resolve(dataUrl)
-        } catch (error) {
-          console.warn('Canvas conversion failed:', error)
-          resolve(imageUrl)
-        }
-      }
-      
-      img.onerror = () => {
-        console.warn('Image load failed, using original URL')
-        resolve(imageUrl)
-      }
-      
-      // Add timeout
-      setTimeout(() => {
-        console.warn('Canvas conversion timed out')
-        resolve(imageUrl)
-      }, 10000)
-      
-      img.src = imageUrl
-    })
-  }, [])
-
-  // Fetch avatar and convert to data URL - more reliable for mobile
-  const fetchAvatarAsDataUrl = useCallback(async (imageUrl: string): Promise<string> => {
-    const isMobile = isMobileDevice()
-    
     try {
-      console.log('Fetching avatar directly:', imageUrl, 'Mobile:', isMobile)
+      console.log('Starting card capture...')
       
-      // For mobile devices, try multiple approaches
-      const fetchUrls = [imageUrl]
-      
-      // Add proxy approaches for mobile
-      if (isMobile && imageUrl.includes('githubusercontent.com')) {
-        // Try with different size parameters that might have better CORS
-        const baseUrl = imageUrl.split('?')[0]
-        fetchUrls.push(`${baseUrl}?s=120&v=4`)
-        fetchUrls.push(`${baseUrl}?s=200&v=4`)
-      }
-      
-      let response: Response | null = null
-      let usedUrl = ''
-      
-      // Try each URL
-      for (const url of fetchUrls) {
-        try {
-          console.log('Trying fetch with URL:', url)
-          response = await fetch(url, {
-            mode: 'cors',
-            cache: 'force-cache',
-            headers: {
-              'Accept': 'image/*'
-            }
+      // Wait a bit for any animations or state changes to settle
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: null, // Transparent background
+        scale: 2, // Higher quality
+        useCORS: true, // Enable CORS for external images
+        allowTaint: true, // Allow tainted canvas
+        foreignObjectRendering: false,
+        imageTimeout: 10000,
+        removeContainer: false,
+        logging: false,
+        onclone: (clonedDoc) => {
+          // Ensure all images are loaded in the cloned document
+          const images = clonedDoc.querySelectorAll('img')
+          images.forEach(img => {
+            img.style.maxWidth = '100%'
+            img.style.height = 'auto'
           })
-          
-          if (response.ok) {
-            usedUrl = url
-            break
-          }
-        } catch (error) {
-          console.log('CORS fetch failed for:', url, error)
         }
-      }
-      
-      // If CORS failed, try no-cors as last resort
-      if (!response || !response.ok) {
-        console.log('All CORS attempts failed, trying no-cors')
-        try {
-          response = await fetch(imageUrl, {
-            mode: 'no-cors',
-            cache: 'force-cache'
-          })
-          usedUrl = imageUrl
-        } catch (error) {
-          throw new Error(`All fetch attempts failed: ${error}`)
-        }
-      }
-      
-      // Convert response to blob
-      const blob = await response.blob()
-      console.log('Successfully fetched avatar blob from:', usedUrl, 'Size:', blob.size, 'Type:', blob.type)
-      
-      // For no-cors responses, blob might be empty, check size
-      if (blob.size === 0) {
-        console.warn('Blob is empty, likely due to no-cors, falling back to canvas')
-        throw new Error('Empty blob from no-cors fetch')
-      }
-      
-      // Convert blob to data URL
-      return new Promise((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const dataUrl = reader.result as string
-          console.log('Successfully converted blob to data URL, length:', dataUrl.length)
-          resolve(dataUrl)
-        }
-        reader.onerror = (error) => {
-          console.warn('FileReader failed:', error, 'falling back to canvas approach')
-          resolve(convertImageToCanvas(imageUrl))
-        }
-        reader.readAsDataURL(blob)
       })
+
+      // Download the image
+      const link = document.createElement('a')
+      link.download = `${profile.username}-gitivity-profile.png`
+      link.href = canvas.toDataURL('image/png')
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
       
+      console.log('Card download successful')
     } catch (error) {
-      console.warn('All fetch approaches failed:', error, 'falling back to canvas')
-      return convertImageToCanvas(imageUrl)
-    }
-  }, [isMobileDevice, convertImageToCanvas])
-  
-  // Preload avatar as data URL on component mount (mobile optimization)
-  useEffect(() => {
-    if (profile.avatarUrl) {
-      fetchAvatarAsDataUrl(profile.avatarUrl).then(setAvatarDataUrl)
-    }
-  }, [profile.avatarUrl, fetchAvatarAsDataUrl])
-  
-  // Dynamic configuration based on device
-  const getDownloadConfig = () => {
-    const isMobile = isMobileDevice()
-    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    
-    return {
-      pixelRatio: isMobile ? Math.max(devicePixelRatio, 3) : 2,
-      canvasWidth: isMobile ? 450 : 550,
-      canvasHeight: isMobile ? 900 : 600,
-      isMobile
+      console.error('Failed to capture card as image:', error)
+      alert('Failed to download the card. Please try again.')
     }
   }
-
-  const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
-    // Keep this hook simple: only handle success and error.
-    // All preparation logic is now in downloadCard.
-    onSuccess: (data) => {
-      const link = document.createElement('a');
-      link.download = `${profile.username}-gitivity-profile.png`;
-      link.href = data;
-      link.click();
-      setIsStatic(false); // Clean up after success
-    },
-    onError: (error) => {
-      console.error('Error downloading card:', error);
-      alert('Failed to download the card. Please try again.');
-      setIsStatic(false); // Clean up after error
-    },
-    // Keep the rest of your configuration
-    backgroundColor: undefined,
-    pixelRatio: getDownloadConfig().pixelRatio,
-    style: {
-      borderRadius: '12px',
-      overflow: 'hidden'
-    },
-    filter: () => true,
-    includeQueryParams: true,
-    skipAutoScale: false,
-    canvasWidth: getDownloadConfig().canvasWidth,
-    canvasHeight: getDownloadConfig().canvasHeight
-  });
-
-  // THIS FUNCTION CONTAINS THE FINAL FIX
-  const downloadCard = async () => {
-    try {
-      // Step 1: Prepare the avatar Data URL if it's not already available.
-      let currentAvatarDataUrl = avatarDataUrl;
-      if (!currentAvatarDataUrl && profile.avatarUrl) {
-        console.log('Avatar data URL not found, fetching now...');
-        currentAvatarDataUrl = await fetchAvatarAsDataUrl(profile.avatarUrl);
-        setAvatarDataUrl(currentAvatarDataUrl);
-      }
-
-      // Step 2: Set the component to "static" mode to render the <img> tag.
-      console.log('Setting component to static mode for capture...');
-      setIsStatic(true);
-
-      // Step 3: Wait for React to re-render the DOM with the static content.
-      // A minimal timeout allows the DOM update to process.
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      // Step 4: CRITICAL - Find the new <img> element and wait for it to fully load.
-      // This is the most reliable way to ensure the image is ready for capture.
-      if (cardRef.current) {
-        const avatarImg = cardRef.current.querySelector('img');
-        // The 'complete' property is true if the browser has finished loading the image.
-        if (avatarImg && !avatarImg.complete) {
-          console.log('Avatar image is not yet complete. Waiting for onload...');
-          await new Promise(resolve => {
-            avatarImg.onload = resolve;
-            // Also resolve on error to prevent the process from hanging indefinitely.
-            avatarImg.onerror = (err) => {
-              console.error("Avatar image failed to load its data URL source.", err);
-              resolve(null); 
-            };
-          });
-          console.log('Avatar onload event fired. Image is ready.');
-        } else {
-            console.log('Avatar image was already complete or not found.')
-        }
-      }
-      
-      // Step 5: Add a final "paint" delay, especially for mobile devices.
-      // This gives the browser an extra moment to draw the loaded image.
-      const finalPaintDelay = isMobileDevice() ? 400 : 100;
-      console.log(`Applying final paint delay of ${finalPaintDelay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, finalPaintDelay));
-
-      // Step 6: With everything prepared and rendered, trigger the capture.
-      console.log('All preparations complete. Starting PNG conversion...');
-      await convertToPng();
-
-    } catch (error) {
-      console.error("An error occurred during the download preparation:", error);
-      alert("Something went wrong while preparing the download. Please try again.");
-      setIsStatic(false); // Ensure we clean up state on failure
-    }
-  };
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -295,42 +75,27 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Main Profile Card - Left Side */}
         <div className="lg:w-1/2">
-          <CometCard className="comet-card-container" isStatic={isStatic}>
+          <CometCard className="comet-card-container">
             <div className="bg-card rounded-[12px] border border-border shadow-sm p-4 w-full">
-              <div ref={(node) => {
-                if (node) cardRefCallback(node)
-                cardRef.current = node
-              }} className="bg-card rounded-[12px] border border-border shadow-sm p-4">
+              <div ref={cardRef} className="bg-card rounded-[12px] border border-border shadow-sm p-4">
               {/* Header Section */}
               <div className="text-center space-y-3 mb-4">
                 <div className="flex items-center justify-center gap-3">
                   {profile.avatarUrl && (
-                    isStatic ? (
-                      <img
-                        src={avatarDataUrl || profile.avatarUrl}
-                        alt={profile.username}
-                        width={60}
-                        height={60}
-                        className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
-                        style={{ 
-                          width: '60px', 
-                          height: '60px',
-                          objectFit: 'cover',
-                          display: 'block'
-                        }}
-                        crossOrigin="anonymous"
-                        loading="eager"
-                      />
-                    ) : (
-                      <Image
-                        src={profile.avatarUrl}
-                        alt={profile.username}
-                        width={60}
-                        height={60}
-                        priority
-                        className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
-                      />
-                    )
+                    <img
+                      src={profile.avatarUrl}
+                      alt={profile.username}
+                      width={60}
+                      height={60}
+                      className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
+                      style={{ 
+                        width: '60px', 
+                        height: '60px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                      crossOrigin="anonymous"
+                    />
                   )}
                   <div>
                     <h1 className="text-2xl font-bold text-foreground">{stats?.name || profile.username}</h1>
