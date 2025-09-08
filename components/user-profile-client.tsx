@@ -79,6 +79,18 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     canvasHeight: getDownloadConfig().canvasHeight
   })
 
+  // Function to wait for image loading
+  const waitForImageLoad = (imageElement: HTMLImageElement): Promise<void> => {
+    return new Promise((resolve) => {
+      if (imageElement.complete && imageElement.naturalHeight !== 0) {
+        resolve()
+      } else {
+        imageElement.onload = () => resolve()
+        imageElement.onerror = () => resolve() // Resolve even on error to avoid hanging
+      }
+    })
+  }
+
   const downloadCard = async () => {
     setIsStatic(true)
     setIsDownloadMode(true)
@@ -88,8 +100,9 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches || 
                       document.documentElement.classList.contains('dark')
     
-    // Wait a moment for the static state to take effect
-    await new Promise(resolve => setTimeout(resolve, 300))
+    // Wait longer on mobile devices for image loading
+    const waitTime = config.isMobile ? 800 : 300
+    await new Promise(resolve => setTimeout(resolve, waitTime))
     
     if (!cardRef.current) {
       convertToPng()
@@ -170,6 +183,12 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
         }
       })
       
+      // Wait for avatar image to load before capture
+      const avatarImg = cardElement.querySelector('img[alt="' + profile.username + '"]') as HTMLImageElement
+      if (avatarImg) {
+        await waitForImageLoad(avatarImg)
+      }
+      
       // Wait for styles to apply
       await new Promise(resolve => setTimeout(resolve, config.isMobile ? 200 : 100))
       
@@ -231,6 +250,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                       alt={profile.username}
                       width={60}
                       height={60}
+                      priority
                       className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
                     />
                   )}
