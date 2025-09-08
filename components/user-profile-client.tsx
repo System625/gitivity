@@ -7,7 +7,7 @@ import { LanguagesOrbitalTimeline } from "@/components/ui/languages-orbital-time
 import { CopyLinkButton } from "@/components/copy-link-button"
 import { Icon } from "@iconify/react"
 import Image from "next/image"
-import { useState, useRef } from "react"
+import { useState, useRef, useCallback } from "react"
 import { useToPng } from "@hugocxl/react-to-image"
 import { GitivityStats } from "@/lib/analysis"
 
@@ -28,6 +28,25 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [isDownloadMode, setIsDownloadMode] = useState(false) // eslint-disable-line @typescript-eslint/no-unused-vars
   const cardRef = useRef<HTMLDivElement>(null)
   
+  // Mobile detection utility
+  const isMobileDevice = () => {
+    if (typeof window === 'undefined') return false
+    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  }
+  
+  // Dynamic configuration based on device
+  const getDownloadConfig = () => {
+    const isMobile = isMobileDevice()
+    const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    
+    return {
+      pixelRatio: isMobile ? Math.max(devicePixelRatio, 3) : 2,
+      canvasWidth: isMobile ? 450 : 550,
+      canvasHeight: isMobile ? 900 : 600,
+      isMobile
+    }
+  }
+  
   const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
     onSuccess: (data) => {
       const link = document.createElement('a')
@@ -44,7 +63,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       setIsDownloadMode(false)
     },
     backgroundColor: undefined,
-    pixelRatio: 2,
+    pixelRatio: getDownloadConfig().pixelRatio,
     style: {
       borderRadius: '12px',
       overflow: 'hidden'
@@ -56,81 +75,138 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     // Enhanced options for better CSS resolution
     includeQueryParams: true,
     skipAutoScale: false,
-    canvasWidth: 600,
-    canvasHeight: 600
+    canvasWidth: getDownloadConfig().canvasWidth,
+    canvasHeight: getDownloadConfig().canvasHeight
   })
 
   const downloadCard = async () => {
     setIsStatic(true)
     setIsDownloadMode(true)
     
-    // Detect current theme
+    // Get device and theme configuration
+    const config = getDownloadConfig()
     const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches || 
                       document.documentElement.classList.contains('dark')
     
     // Wait a moment for the static state to take effect
     await new Promise(resolve => setTimeout(resolve, 300))
     
-    // Apply enhanced styling for light mode downloads
-    if (!isDarkMode && cardRef.current) {
-      const cardElement = cardRef.current
-      const originalBoxShadow = cardElement.style.boxShadow
-      const originalBorder = cardElement.style.border
+    if (!cardRef.current) {
+      convertToPng()
+      return
+    }
+
+    const cardElement = cardRef.current
+    
+    // Get actual content dimensions for better canvas sizing
+    const rect = cardElement.getBoundingClientRect()   
+    const originalStyles = {
+      boxShadow: cardElement.style.boxShadow,
+      border: cardElement.style.border,
+      background: cardElement.style.background,
+      fontSize: cardElement.style.fontSize,
+      padding: cardElement.style.padding
+    }
+
+    try {
+      // Apply mobile-specific enhancements
+      if (config.isMobile) {
+        // Enhanced mobile styling for better text readability
+        cardElement.style.fontSize = '110%'
+        cardElement.style.padding = '20px'
+        
+        // Stronger shadows and borders for mobile
+        if (isDarkMode) {
+          cardElement.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 0 0 2px rgba(255, 255, 255, 0.1)'
+          cardElement.style.border = '2px solid rgba(255, 255, 255, 0.2)'
+        } else {
+          cardElement.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1), inset 0 0 0 2px rgba(0, 0, 0, 0.1)'
+          cardElement.style.border = '2px solid rgba(0, 0, 0, 0.2)'
+          cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 248, 248, 1) 100%)'
+        }
+        
+        // Enhance mobile text elements
+        const headings = cardElement.querySelectorAll('h1, h2, h3')
+        const mobileTextStyles: { element: HTMLElement; originalFontWeight: string; originalFontSize: string }[] = []
+        
+        headings.forEach((heading: Element) => {
+          if (heading instanceof HTMLElement) {
+            mobileTextStyles.push({
+              element: heading,
+              originalFontWeight: heading.style.fontWeight,
+              originalFontSize: heading.style.fontSize
+            })
+            heading.style.fontWeight = 'bold'
+            heading.style.fontSize = '105%'
+          }
+        })
+        
+        // Store for cleanup
+        ;(cardElement as HTMLDivElement & { __mobileTextStyles?: typeof mobileTextStyles }).__mobileTextStyles = mobileTextStyles
+      }
       
-      // Add enhanced styling for better contrast in light mode
-      cardElement.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.08)'
-      cardElement.style.border = '1px solid rgba(0, 0, 0, 0.15)'
-      cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 250, 250, 0.98) 100%)'
-      
-      // Enhance text contrast for score breakdown sections
+      // Apply light mode enhancements (for non-mobile or additional mobile light mode)
+      if (!isDarkMode && !config.isMobile) {
+        cardElement.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.08)'
+        cardElement.style.border = '1px solid rgba(0, 0, 0, 0.15)'
+        cardElement.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 250, 250, 0.98) 100%)'
+      }
+
+      // Enhanced contrast for score sections and achievement cards
       const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
+      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
+      
       scoreSections.forEach((section: Element) => {
         if (section instanceof HTMLElement) {
-          section.style.background = 'rgba(0, 0, 0, 0.06)'
-          section.style.border = '1px solid rgba(0, 0, 0, 0.08)'
+          section.style.background = config.isMobile ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.06)'
+          section.style.border = config.isMobile ? '1px solid rgba(0, 0, 0, 0.12)' : '1px solid rgba(0, 0, 0, 0.08)'
         }
       })
       
-      // Enhance achievement cards contrast
-      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
       achievementCards.forEach((card: Element) => {
         if (card instanceof HTMLElement) {
-          card.style.background = 'rgba(0, 0, 0, 0.05)'
-          card.style.border = '1px solid rgba(0, 0, 0, 0.1)'
+          card.style.background = config.isMobile ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.05)'
+          card.style.border = config.isMobile ? '1px solid rgba(0, 0, 0, 0.15)' : '1px solid rgba(0, 0, 0, 0.1)'
         }
       })
       
       // Wait for styles to apply
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise(resolve => setTimeout(resolve, config.isMobile ? 200 : 100))
       
-      try {
-        await convertToPng()
-      } finally {
-        // Restore original styling
-        cardElement.style.boxShadow = originalBoxShadow
-        cardElement.style.border = originalBorder
-        cardElement.style.background = ''
-        
-        // Restore score sections
-        const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
-        scoreSections.forEach((section: Element) => {
-          if (section instanceof HTMLElement) {
-            section.style.background = ''
-            section.style.border = ''
-          }
+      await convertToPng()
+      
+    } finally {
+      // Restore all original styling
+      Object.assign(cardElement.style, originalStyles)
+      
+      // Restore mobile text styles
+      const extendedCardElement = cardElement as HTMLDivElement & { __mobileTextStyles?: { element: HTMLElement; originalFontWeight: string; originalFontSize: string }[] }
+      const mobileTextStyles = extendedCardElement.__mobileTextStyles
+      if (mobileTextStyles) {
+        mobileTextStyles.forEach(({ element, originalFontWeight, originalFontSize }) => {
+          element.style.fontWeight = originalFontWeight
+          element.style.fontSize = originalFontSize
         })
-        
-        // Restore achievement cards
-        const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
-        achievementCards.forEach((card: Element) => {
-          if (card instanceof HTMLElement) {
-            card.style.background = ''
-            card.style.border = ''
-          }
-        })
+        delete extendedCardElement.__mobileTextStyles
       }
-    } else {
-      convertToPng()
+      
+      // Restore score sections and achievement cards
+      const scoreSections = cardElement.querySelectorAll('.bg-muted\\/30')
+      const achievementCards = cardElement.querySelectorAll('.bg-white\\/5')
+      
+      scoreSections.forEach((section: Element) => {
+        if (section instanceof HTMLElement) {
+          section.style.background = ''
+          section.style.border = ''
+        }
+      })
+      
+      achievementCards.forEach((card: Element) => {
+        if (card instanceof HTMLElement) {
+          card.style.background = ''
+          card.style.border = ''
+        }
+      })
     }
   }
 
@@ -170,14 +246,14 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                   </div>
                   <div className="text-sm text-muted-foreground">Gitivity Score</div>
                   {profile.rank && profile.totalUsers && (
-                    <div className="text-xs text-muted-foreground mt-1">
+                    <div className="text-2xl md:text-4xl font-bold text-[#7b3b4b] mt-1">
                       Rank #{profile.rank.toLocaleString()} out of {profile.totalUsers.toLocaleString()}
                     </div>
                   )}
                 </div>
 
                 {stats?.bio && (
-                  <p className="text-muted-foreground text-sm max-w-lg mx-auto line-clamp-2">{stats.bio}</p>
+                  <p className="text-muted-foreground text-sm max-w-lg mx-auto line-clamp-2">Bio: {stats.bio}</p>
                 )}
               </div>
 
@@ -224,7 +300,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
               {stats?.scoreBreakdown?.achievements && stats.scoreBreakdown.achievements.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-border">
                   <h2 className="text-lg font-bold text-center mb-3 text-foreground">Achievements</h2>
-                  <div className="flex flex-wrap justify-center gap-2">
+                  <div className="flex flex-wrap justify-center gap-3 w-full max-w-sm md:max-w-none mx-auto">
                     {stats.scoreBreakdown.achievements.slice(0, 4).map((achievement) => {
                       // Map emoji icons to Iconify icons
                       const iconMap: Record<string, string> = {
@@ -242,7 +318,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                       const iconName = iconMap[achievement.icon] || 'mdi:star-outline'
                       
                       return (
-                        <div key={achievement.id} className="bg-white/5 rounded-lg border border-white/10 p-2 text-center min-w-[120px] max-w-[140px]">
+                        <div key={achievement.id} className="bg-white/5 rounded-lg border border-white/10 p-2 md:p-3 text-center w-[130px] md:w-[140px] flex-shrink-0">
                           <div className="flex items-center justify-center mb-1">
                             <Icon icon={iconName} className="text-2xl text-[#7b3b4b]" />
                           </div>

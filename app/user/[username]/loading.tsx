@@ -10,7 +10,7 @@ export default function Loading() {
           <div className="bg-card rounded-[12px] border border-border shadow-sm p-4 w-full">
             <div className="flex flex-col items-center justify-center min-h-[400px] space-y-8">
               {/* Main Loading Animation */}
-              <div className="text-center space-y-6">
+              <div className="text-center flex flex-col justify-center items-center space-y-6">
                 <LoaderThree />
                 <LoaderFive text="Analyzing GitHub Profile..." />
               </div>
