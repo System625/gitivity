@@ -28,6 +28,74 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
 
+  // Mobile detection utility
+  const isMobileDevice = useCallback(() => {
+    if (typeof window === 'undefined') return false
+    
+    // Check for mobile user agents
+    const userAgent = navigator.userAgent
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(userAgent)
+    
+    // Check for mobile screen size
+    const isMobileScreen = window.innerWidth <= 768
+    
+    // Check for touch device
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    
+    return isMobileUA || (isMobileScreen && isTouchDevice)
+  }, [])
+
+  // Fallback canvas conversion method
+  const convertImageToCanvas = useCallback((imageUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new (window.Image)()
+      
+      // Set crossOrigin before setting src
+      img.crossOrigin = 'anonymous'
+      
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          
+          if (!ctx) {
+            console.warn('Failed to get canvas context')
+            resolve(imageUrl)
+            return
+          }
+          
+          // Set canvas dimensions to match image
+          canvas.width = img.naturalWidth || img.width
+          canvas.height = img.naturalHeight || img.height
+          
+          // Draw the image to canvas
+          ctx.drawImage(img, 0, 0)
+          
+          // Convert to data URL
+          const dataUrl = canvas.toDataURL('image/png', 1.0)
+          console.log('Canvas conversion successful')
+          resolve(dataUrl)
+        } catch (error) {
+          console.warn('Canvas conversion failed:', error)
+          resolve(imageUrl)
+        }
+      }
+      
+      img.onerror = () => {
+        console.warn('Image load failed, using original URL')
+        resolve(imageUrl)
+      }
+      
+      // Add timeout
+      setTimeout(() => {
+        console.warn('Canvas conversion timed out')
+        resolve(imageUrl)
+      }, 10000)
+      
+      img.src = imageUrl
+    })
+  }, [])
+
   // Fetch avatar and convert to data URL - more reliable for mobile
   const fetchAvatarAsDataUrl = useCallback(async (imageUrl: string): Promise<string> => {
     const isMobile = isMobileDevice()
@@ -114,57 +182,6 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       return convertImageToCanvas(imageUrl)
     }
   }, [isMobileDevice, convertImageToCanvas])
-
-  // Fallback canvas conversion method
-  const convertImageToCanvas = useCallback((imageUrl: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new (window.Image)()
-      
-      // Set crossOrigin before setting src
-      img.crossOrigin = 'anonymous'
-      
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas')
-          const ctx = canvas.getContext('2d')
-          
-          if (!ctx) {
-            console.warn('Failed to get canvas context')
-            resolve(imageUrl)
-            return
-          }
-          
-          // Set canvas dimensions to match image
-          canvas.width = img.naturalWidth || img.width
-          canvas.height = img.naturalHeight || img.height
-          
-          // Draw the image to canvas
-          ctx.drawImage(img, 0, 0)
-          
-          // Convert to data URL
-          const dataUrl = canvas.toDataURL('image/png', 1.0)
-          console.log('Canvas conversion successful')
-          resolve(dataUrl)
-        } catch (error) {
-          console.warn('Canvas conversion failed:', error)
-          resolve(imageUrl)
-        }
-      }
-      
-      img.onerror = () => {
-        console.warn('Image load failed, using original URL')
-        resolve(imageUrl)
-      }
-      
-      // Add timeout
-      setTimeout(() => {
-        console.warn('Canvas conversion timed out')
-        resolve(imageUrl)
-      }, 10000)
-      
-      img.src = imageUrl
-    })
-  }, [])
   
   // Preload avatar as data URL on component mount (mobile optimization)
   useEffect(() => {
@@ -172,23 +189,6 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       fetchAvatarAsDataUrl(profile.avatarUrl).then(setAvatarDataUrl)
     }
   }, [profile.avatarUrl, fetchAvatarAsDataUrl])
-  
-  // Mobile detection utility
-  const isMobileDevice = useCallback(() => {
-    if (typeof window === 'undefined') return false
-    
-    // Check for mobile user agents
-    const userAgent = navigator.userAgent
-    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(userAgent)
-    
-    // Check for mobile screen size
-    const isMobileScreen = window.innerWidth <= 768
-    
-    // Check for touch device
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-    
-    return isMobileUA || (isMobileScreen && isTouchDevice)
-  }, [])
   
   // Dynamic configuration based on device
   const getDownloadConfig = () => {
