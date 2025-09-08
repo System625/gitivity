@@ -27,7 +27,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [isStatic, setIsStatic] = useState(false)
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
-  
+
   // Convert image URL to data URL for mobile compatibility
   const convertImageToDataUrl = useCallback((imageUrl: string): Promise<string> => {
     return new Promise((resolve) => {
@@ -137,61 +137,92 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       isMobile
     }
   }
-  
+
   const [, convertToPng, cardRefCallback] = useToPng<HTMLDivElement>({
-    // REMOVE the onStart callback entirely.
-    // The preparation logic is now handled correctly before this is called.
+    // Keep this hook simple: only handle success and error.
+    // All preparation logic is now in downloadCard.
     onSuccess: (data) => {
-      const link = document.createElement('a')
-      link.download = `${profile.username}-gitivity-profile.png`
-      link.href = data
-      link.click()
-      setIsStatic(false) // Cleanup on success
+      const link = document.createElement('a');
+      link.download = `${profile.username}-gitivity-profile.png`;
+      link.href = data;
+      link.click();
+      setIsStatic(false); // Clean up after success
     },
     onError: (error) => {
-      console.error('Error downloading card:', error)
-      alert('Failed to download the card. Please try again.')
-      setIsStatic(false) // Cleanup on error
+      console.error('Error downloading card:', error);
+      alert('Failed to download the card. Please try again.');
+      setIsStatic(false); // Clean up after error
     },
+    // Keep the rest of your configuration
     backgroundColor: undefined,
     pixelRatio: getDownloadConfig().pixelRatio,
     style: {
       borderRadius: '12px',
       overflow: 'hidden'
     },
-    filter: () => {
-      // Ensure we're capturing the styled version
-      return true
-    },
-    // Enhanced options for better CSS resolution
+    filter: () => true,
     includeQueryParams: true,
     skipAutoScale: false,
     canvasWidth: getDownloadConfig().canvasWidth,
     canvasHeight: getDownloadConfig().canvasHeight
-  })
+  });
 
-
-  // THE PRIMARY FIX IS IN THIS FUNCTION
+  // THIS FUNCTION CONTAINS THE FINAL FIX
   const downloadCard = async () => {
-    // 1. Ensure the avatar data URL is ready BEFORE switching to static mode.
-    // If we don't have it yet, we fetch and set it in the state.
-    if (!avatarDataUrl && profile.avatarUrl) {
-      const dataUrl = await convertImageToDataUrl(profile.avatarUrl)
-      setAvatarDataUrl(dataUrl)
+    try {
+      // Step 1: Prepare the avatar Data URL if it's not already available.
+      let currentAvatarDataUrl = avatarDataUrl;
+      if (!currentAvatarDataUrl && profile.avatarUrl) {
+        console.log('Avatar data URL not found, converting now...');
+        currentAvatarDataUrl = await convertImageToDataUrl(profile.avatarUrl);
+        setAvatarDataUrl(currentAvatarDataUrl);
+      }
+
+      // Step 2: Set the component to "static" mode to render the <img> tag.
+      console.log('Setting component to static mode for capture...');
+      setIsStatic(true);
+
+      // Step 3: Wait for React to re-render the DOM with the static content.
+      // A minimal timeout allows the DOM update to process.
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Step 4: CRITICAL - Find the new <img> element and wait for it to fully load.
+      // This is the most reliable way to ensure the image is ready for capture.
+      if (cardRef.current) {
+        const avatarImg = cardRef.current.querySelector('img');
+        // The 'complete' property is true if the browser has finished loading the image.
+        if (avatarImg && !avatarImg.complete) {
+          console.log('Avatar image is not yet complete. Waiting for onload...');
+          await new Promise(resolve => {
+            avatarImg.onload = resolve;
+            // Also resolve on error to prevent the process from hanging indefinitely.
+            avatarImg.onerror = (err) => {
+              console.error("Avatar image failed to load its data URL source.", err);
+              resolve(null); 
+            };
+          });
+          console.log('Avatar onload event fired. Image is ready.');
+        } else {
+            console.log('Avatar image was already complete or not found.')
+        }
+      }
+      
+      // Step 5: Add a final "paint" delay, especially for mobile devices.
+      // This gives the browser an extra moment to draw the loaded image.
+      const finalPaintDelay = isMobileDevice() ? 400 : 100;
+      console.log(`Applying final paint delay of ${finalPaintDelay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, finalPaintDelay));
+
+      // Step 6: With everything prepared and rendered, trigger the capture.
+      console.log('All preparations complete. Starting PNG conversion...');
+      await convertToPng();
+
+    } catch (error) {
+      console.error("An error occurred during the download preparation:", error);
+      alert("Something went wrong while preparing the download. Please try again.");
+      setIsStatic(false); // Ensure we clean up state on failure
     }
-
-    // 2. Set the component into "static" mode for the capture.
-    setIsStatic(true)
-
-    // 3. IMPORTANT: Wait for React to apply the state update and re-render the DOM.
-    // A short timeout pushes the next steps to the back of the browser's
-    // event queue, giving React time to render the static version of the card.
-    await new Promise(resolve => setTimeout(resolve, 100))
-
-    // 4. Now that the DOM is stable and the <img> tag has the correct data URL,
-    // we can safely trigger the conversion.
-    await convertToPng()
-  }
+  };
 
   return (
     <div className="container mx-auto px-4 py-6">
