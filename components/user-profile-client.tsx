@@ -58,18 +58,18 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
 
       const canvas = await html2canvas(element, {
         backgroundColor: '#0d1117',
-        scale: 1.5,
-        useCORS: true,
-        allowTaint: true,
+        scale: 1.2,
+        useCORS: false, // We're handling images manually now
+        allowTaint: false, // Safer approach
+        logging: false,
         foreignObjectRendering: false,
         imageTimeout: 10000,
         removeContainer: false,
-        logging: false,
         ignoreElements: (element) => {
           // Ignore all style and link elements
           return element.tagName === 'STYLE' || element.tagName === 'LINK' || element.tagName === 'SCRIPT'
         },
-        onclone: (clonedDoc) => {
+        onclone: async (clonedDoc) => {
           console.log('Cloning document and removing all external CSS...')
           
           // Remove ALL stylesheets to prevent lab() color parsing
@@ -89,13 +89,58 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
             }
           })
 
-          // Ensure all images are loaded
+          // Convert all images to data URLs to avoid CORS issues
           const images = clonedDoc.querySelectorAll('img')
-          images.forEach(img => {
-            img.crossOrigin = 'anonymous'
-            img.style.maxWidth = '100%'
-            img.style.height = 'auto'
+          const imagePromises = Array.from(images).map(async (img) => {
+            try {
+              // Create a new image element to load the image
+              const tempImg = document.createElement('img')
+              tempImg.crossOrigin = 'anonymous'
+              
+              return new Promise<void>((resolve) => {
+                // Set a timeout to prevent hanging
+                const timeout = setTimeout(() => {
+                  console.warn('Image processing timeout for:', img.src)
+                  resolve()
+                }, 5000) // 5 second timeout
+                
+                tempImg.onload = () => {
+                  clearTimeout(timeout)
+                  try {
+                    // Create a canvas to convert the image to data URL
+                    const canvas = document.createElement('canvas')
+                    const ctx = canvas.getContext('2d')
+                    if (ctx) {
+                      canvas.width = tempImg.width
+                      canvas.height = tempImg.height
+                      ctx.drawImage(tempImg, 0, 0)
+                      const dataUrl = canvas.toDataURL('image/png')
+                      img.src = dataUrl
+                      console.log('Successfully converted image to data URL')
+                    }
+                    resolve()
+                  } catch (error) {
+                    console.warn('Failed to convert image to data URL:', error)
+                    resolve()
+                  }
+                }
+                tempImg.onerror = () => {
+                  clearTimeout(timeout)
+                  console.warn('Failed to load image:', img.src)
+                  resolve()
+                }
+                tempImg.src = img.src
+              })
+            } catch (error) {
+              console.warn('Error processing image:', error)
+              return Promise.resolve()
+            }
           })
+          
+          // Wait for all images to be processed with a timeout
+          console.log(`Processing ${imagePromises.length} images...`)
+          await Promise.allSettled(imagePromises)
+          console.log('Image processing complete')
           
           console.log('CSS cleanup complete')
         }

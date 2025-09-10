@@ -38,16 +38,40 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
         {/* Header Section */}
         <div style={{ textAlign: 'center', marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '16px' }}>
-            {profile.avatarUrl && (
+            {profile.avatarUrl ? (
               <Image
                 src={profile.avatarUrl}
                 alt={profile.username}
-                width={60}
-                height={60}
-                style={{ borderRadius: '50%', border: '2px solid #7b3b4b' }}
-                crossOrigin="anonymous"
+                width={48}
+                height={48}
+                style={{ 
+                  borderRadius: '50%', 
+                  border: '2px solid #7b3b4b',
+                  width: '48px',
+                  height: '48px',
+                  objectFit: 'cover',
+                  objectPosition: 'center'
+                }}
+                unoptimized
                 priority
+                crossOrigin="anonymous"
               />
+            ) : (
+              <div style={{ 
+                width: '48px', 
+                height: '48px', 
+                borderRadius: '50%', 
+                border: '2px solid #7b3b4b',
+                backgroundColor: '#161b22',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#7b3b4b',
+                fontSize: '20px',
+                fontWeight: 'bold'
+              }}>
+                {profile.username.charAt(0).toUpperCase()}
+              </div>
             )}
             <div>
               <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', margin: '0' }}>
