@@ -11,6 +11,37 @@ import { useState, useRef, useCallback } from "react"
 import { useToPng } from "@hugocxl/react-to-image"
 import { GitivityStats } from "@/lib/analysis"
 
+// Helper function to wait for an image to be fully loaded
+const waitForImageLoad = (imgElement: HTMLImageElement): Promise<void> => {
+  return new Promise((resolve) => {
+    // If the image is already loaded (e.g., from cache), resolve immediately.
+    // The naturalHeight check ensures it's a valid, rendered image.
+    if (imgElement.complete && imgElement.naturalHeight !== 0) {
+      return resolve();
+    }
+    
+    // Otherwise, add event listeners
+    const handleLoad = () => {
+      cleanup();
+      resolve();
+    };
+    
+    const handleError = () => {
+      console.error("Avatar image failed to load for download.");
+      cleanup();
+      resolve(); // Resolve even on error to prevent the download from hanging
+    };
+
+    const cleanup = () => {
+      imgElement.removeEventListener('load', handleLoad);
+      imgElement.removeEventListener('error', handleError);
+    };
+
+    imgElement.addEventListener('load', handleLoad);
+    imgElement.addEventListener('error', handleError);
+  });
+};
+
 interface UserProfileClientProps {
   profile: {
     username: string
@@ -79,29 +110,6 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     canvasHeight: getDownloadConfig().canvasHeight
   })
 
-  // Image load verification helper
-  const waitForImageLoad = (img: HTMLImageElement): Promise<void> => {
-    return new Promise((resolve) => {
-      if (img.complete && img.naturalHeight !== 0) {
-        // Image is already loaded
-        resolve()
-      } else {
-        // Wait for image to load
-        const onLoad = () => {
-          img.removeEventListener('load', onLoad)
-          img.removeEventListener('error', onError)
-          resolve()
-        }
-        const onError = () => {
-          img.removeEventListener('load', onLoad)
-          img.removeEventListener('error', onError)
-          resolve() // Resolve even on error to avoid hanging
-        }
-        img.addEventListener('load', onLoad)
-        img.addEventListener('error', onError)
-      }
-    })
-  }
 
   const downloadCard = async () => {
     setIsStatic(true)
@@ -121,16 +129,6 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     }
 
     const cardElement = cardRef.current
-    
-    // Wait for avatar image to load before proceeding
-    const avatarImg = cardElement.querySelector('img') as HTMLImageElement
-    if (avatarImg && profile.avatarUrl) {
-      await waitForImageLoad(avatarImg)
-      // Additional wait for mobile devices to ensure proper rendering
-      if (config.isMobile) {
-        await new Promise(resolve => setTimeout(resolve, 500))
-      }
-    }
     
     // Get actual content dimensions for better canvas sizing
     const rect = cardElement.getBoundingClientRect()   
@@ -207,6 +205,14 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       // Wait for styles to apply
       await new Promise(resolve => setTimeout(resolve, config.isMobile ? 200 : 100))
       
+      // Wait for the avatar image to load
+      const avatarImg = cardElement.querySelector('img') as HTMLImageElement
+      if (avatarImg) {
+        console.log('Waiting for avatar image to load...')
+        await waitForImageLoad(avatarImg)
+        console.log('Avatar image loaded successfully.')
+      }
+      
       await convertToPng()
       
     } finally {
@@ -266,6 +272,8 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                       width={60}
                       height={60}
                       className="w-15 h-15 rounded-full border-2 border-[#7b3b4b]"
+                      priority
+                      crossOrigin="anonymous"
                     />
                   )}
                   <div>
