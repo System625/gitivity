@@ -27,17 +27,36 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
         ref={ref}
         style={{ 
           width: '400px',
+          height: 'auto',
+          minHeight: '500px',
           backgroundColor: '#0d1117',
           border: '1px solid #30363d',
           borderRadius: '16px',
           padding: '20px',
           fontFamily: 'sans-serif',
-          color: 'white'
+          color: 'white',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px'
         }}
       >
         {/* Header Section */}
-        <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '16px' }}>
+        <div style={{ 
+          textAlign: 'center', 
+          marginBottom: '0px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            gap: '12px',            
+            width: '100%'
+          }}>
             {profile.avatarUrl ? (
               <Image
                 src={profile.avatarUrl}
@@ -73,7 +92,7 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
                 {profile.username.charAt(0).toUpperCase()}
               </div>
             )}
-            <div>
+            <div style={{ position: 'relative', top: '-8px' }}>
               <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', margin: '0' }}>
                 {stats?.name || profile.username}
               </h1>
@@ -82,39 +101,53 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
               </p>
             </div>
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#7b3b4b', marginBottom: '4px' }}>
+          <div style={{ textAlign: 'center', position: 'relative', top: '-8px' }}>
+            <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#7b3b4b', marginBottom: '16px' }}>
               {profile.score}%
             </div>
-            <div style={{ fontSize: '14px', color: '#8b949e' }}>Gitivity Score</div>
+            <div style={{ fontSize: '16px', color: '#8b949e' }}>Gitivity Score</div>
             {profile.rank && profile.totalUsers && (
               <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#7b3b4b', marginTop: '4px' }}>
                 Rank #{profile.rank.toLocaleString()} of {profile.totalUsers.toLocaleString()}
               </div>
             )}
-          </div>
-
-          {stats?.bio && (
-            <p style={{ color: '#8b949e', fontSize: '14px', maxWidth: '400px', margin: '16px auto 0' }}>
+            {stats?.bio && (
+            <p style={{ color: '#8b949e', fontSize: '14px', maxWidth: '400px', marginTop: '8px' }}>
               Bio: {stats.bio}
             </p>
           )}
+          </div>          
         </div>
 
         {/* Score Breakdown */}
         {stats?.scoreBreakdown && (
-          <div style={{ marginBottom: '12px' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: 'bold', textAlign: 'center', marginBottom: '8px', color: 'white' }}>
+          <div style={{ marginBottom: '8px' }}>
+            <h2 style={{ 
+              fontSize: '16px', 
+              fontWeight: 'bold', 
+              textAlign: 'center', 
+              marginBottom: '8px', 
+              color: 'white',
+              margin: '0 0 20px 0'
+            }}>
               Score Breakdown
             </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              gap: '8px',
+              width: '100%'
+            }}>
               {/* Creator */}
               <div style={{ 
                 textAlign: 'center', 
-                padding: '8px', 
+                padding: '0px 8px 16px', 
                 backgroundColor: '#161b22', 
                 border: '1px solid #30363d', 
-                borderRadius: '6px' 
+                borderRadius: '6px',
+                flex: '1',
+                minWidth: '0',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '16px', color: '#7b3b4b', marginBottom: '2px' }}>⭐</div>
                 <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#7b3b4b', marginBottom: '2px' }}>
@@ -126,10 +159,13 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
               {/* Collaborator */}
               <div style={{ 
                 textAlign: 'center', 
-                padding: '8px', 
+                padding: '0px 8px 16px', 
                 backgroundColor: '#161b22', 
                 border: '1px solid #30363d', 
-                borderRadius: '6px' 
+                borderRadius: '6px',
+                flex: '1',
+                minWidth: '0',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '16px', color: '#7b3b4b', marginBottom: '2px' }}>🤝</div>
                 <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#7b3b4b', marginBottom: '2px' }}>
@@ -141,10 +177,13 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
               {/* Craftsmanship */}
               <div style={{ 
                 textAlign: 'center', 
-                padding: '8px', 
+                padding: '0px 8px 16px', 
                 backgroundColor: '#161b22', 
                 border: '1px solid #30363d', 
-                borderRadius: '6px' 
+                borderRadius: '6px',
+                flex: '1',
+                minWidth: '0',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '16px', color: '#7b3b4b', marginBottom: '2px' }}>🔧</div>
                 <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#7b3b4b', marginBottom: '2px' }}>
@@ -159,11 +198,32 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
 
         {/* Achievements */}
         {stats?.scoreBreakdown?.achievements && stats.scoreBreakdown.achievements.length > 0 && (
-          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #30363d' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: 'bold', textAlign: 'center', marginBottom: '8px', color: 'white' }}>
+          <div style={{ 
+            marginTop: '8px', 
+            paddingTop: '2px 0px 12px', 
+            borderTop: '1px solid #30363d',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <h2 style={{ 
+              fontSize: '16px', 
+              fontWeight: 'bold', 
+              textAlign: 'center', 
+              marginBottom: '6px', 
+              color: 'white',
+              margin: '0 0 6px 0'
+            }}>
               Achievements
             </h2>
-            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px' }}>
+            <div style={{ 
+              display: 'flex', 
+              flexWrap: 'wrap', 
+              justifyContent: 'center', 
+              gap: '8px',
+              width: '100%'
+            }}>
               {stats.scoreBreakdown.achievements.slice(0, 4).map((achievement) => {
                 return (
                   <div 
@@ -172,13 +232,19 @@ export const ProfileCardForDownload = forwardRef<HTMLDivElement, ProfileCardForD
                       backgroundColor: '#161b22', 
                       border: '1px solid #30363d', 
                       borderRadius: '6px', 
-                      padding: '8px', 
+                      padding: '0px 8px 16px', 
                       textAlign: 'center', 
                       width: '85px',
-                      flexShrink: 0
+                      flexShrink: 0,
+                      boxSizing: 'border-box',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '2px'
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '4px' }}>
                       <div style={{ fontSize: '18px', color: '#7b3b4b' }}>{achievement.icon}</div>
                     </div>
                     <div style={{ fontWeight: '600', color: 'white', marginBottom: '2px', fontSize: '10px' }}>

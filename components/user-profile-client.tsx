@@ -90,7 +90,25 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
           images.forEach(img => {
             img.style.maxWidth = '100%'
             img.style.height = 'auto'
+            img.style.display = 'block'
           })
+          
+          // Ensure proper box-sizing for all elements
+          const allElements = clonedDoc.querySelectorAll('*')
+          allElements.forEach(el => {
+            if (el instanceof HTMLElement) {
+              el.style.boxSizing = 'border-box'
+            }
+          })
+          
+          // Force layout recalculation
+          const body = clonedDoc.body
+          if (body) {
+            body.style.margin = '0'
+            body.style.padding = '0'
+            body.style.width = '100%'
+            body.style.height = 'auto'
+          }
         }
       })
 
