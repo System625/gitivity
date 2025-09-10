@@ -54,142 +54,43 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     if (!element) return
 
     try {
-      // First, ensure all images in the original DOM are loaded
-      const originalImages = element.querySelectorAll('img')
-      const originalImagePromises = Array.from(originalImages).map((img) => {
-        return new Promise<void>((resolve) => {
-          if (img.complete && img.naturalHeight !== 0) {
-            // Image is already loaded
-            resolve()
-          } else {
-            const timeout = setTimeout(() => {
-              console.warn('Original image load timeout for:', img.src)
-              resolve()
-            }, 3000)
-            
-            img.onload = () => {
-              clearTimeout(timeout)
-              resolve()
-            }
-            img.onerror = () => {
-              clearTimeout(timeout)
-              console.warn('Original image failed to load:', img.src)
-              resolve()
-            }
-          }
+      // Preload avatar image to ensure it's ready
+      const avatarImg = element.querySelector('img')
+      if (avatarImg && avatarImg.src && !avatarImg.src.startsWith('data:')) {
+        setDownloadProgress('Loading avatar...')
+        await new Promise<void>((resolve) => {
+          const tempImg = document.createElement('img')
+          tempImg.crossOrigin = 'anonymous'
+          tempImg.onload = () => resolve()
+          tempImg.onerror = () => resolve() // Continue even if it fails
+          tempImg.src = avatarImg.src
         })
-      })
+      }
       
-      console.log(`Waiting for ${originalImagePromises.length} original images to load...`)
-      setDownloadProgress('Loading images...')
-      await Promise.allSettled(originalImagePromises)
-      console.log('Original images loaded')
-      setDownloadProgress('Preparing download...')
-      
-      // Additional wait time for mobile devices
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Much shorter wait time - just enough for DOM updates
+      await new Promise(resolve => setTimeout(resolve, 300))
+      setDownloadProgress('Generating image...')
 
       const canvas = await html2canvas(element, {
         backgroundColor: '#0d1117',
         scale: 1.2,
-        useCORS: false, // We're handling images manually now
-        allowTaint: false, // Safer approach
-        logging: false,
+        useCORS: true,
+        allowTaint: true,
         foreignObjectRendering: false,
         imageTimeout: 10000,
         removeContainer: false,
+        logging: false,
         ignoreElements: (element) => {
           // Ignore all style and link elements
           return element.tagName === 'STYLE' || element.tagName === 'LINK' || element.tagName === 'SCRIPT'
         },
-        onclone: async (clonedDoc) => {
-          console.log('Cloning document and removing all external CSS...')
-          
-          // Remove ALL stylesheets to prevent lab() color parsing
-          const stylesheets = clonedDoc.querySelectorAll('link[rel="stylesheet"], style')
-          stylesheets.forEach(sheet => {
-            console.log('Removing stylesheet:', sheet)
-            sheet.remove()
-          })
-          
-          // Remove any remaining style tags
-          const remainingStyles = clonedDoc.querySelectorAll('*[style*="lab"]')
-          remainingStyles.forEach(el => {
-            console.log('Found element with lab() color:', el)
-            // Clear any computed styles that might contain lab()
-            if (el instanceof HTMLElement) {
-              el.style.cssText = ''
-            }
-          })
-
-          // Convert all images to data URLs to avoid CORS issues
+        onclone: (clonedDoc) => {
+          // Ensure all images are loaded in the cloned document
           const images = clonedDoc.querySelectorAll('img')
-          const imagePromises = Array.from(images).map(async (img) => {
-            try {
-              // If the image is already a data URL, skip processing
-              if (img.src.startsWith('data:')) {
-                console.log('Image is already a data URL, skipping conversion')
-                return Promise.resolve()
-              }
-              
-              // Create a new image element to load the image
-              const tempImg = document.createElement('img')
-              tempImg.crossOrigin = 'anonymous'
-              
-              return new Promise<void>((resolve) => {
-                // Set a longer timeout for mobile devices
-                const timeout = setTimeout(() => {
-                  console.warn('Image processing timeout for:', img.src)
-                  resolve()
-                }, 8000) // 8 second timeout for mobile
-                
-                tempImg.onload = () => {
-                  clearTimeout(timeout)
-                  try {
-                    // Create a canvas to convert the image to data URL
-                    const canvas = document.createElement('canvas')
-                    const ctx = canvas.getContext('2d')
-                    if (ctx && tempImg.width > 0 && tempImg.height > 0) {
-                      canvas.width = tempImg.width
-                      canvas.height = tempImg.height
-                      ctx.drawImage(tempImg, 0, 0)
-                      const dataUrl = canvas.toDataURL('image/png')
-                      img.src = dataUrl
-                      console.log('Successfully converted image to data URL:', img.src.substring(0, 50) + '...')
-                    } else {
-                      console.warn('Invalid image dimensions or context:', tempImg.width, tempImg.height)
-                    }
-                    resolve()
-                  } catch (error) {
-                    console.warn('Failed to convert image to data URL:', error)
-                    resolve()
-                  }
-                }
-                tempImg.onerror = () => {
-                  clearTimeout(timeout)
-                  console.warn('Failed to load image:', img.src)
-                  resolve()
-                }
-                
-                // Add a small delay before setting src to ensure proper loading
-                setTimeout(() => {
-                  tempImg.src = img.src
-                }, 100)
-              })
-            } catch (error) {
-              console.warn('Error processing image:', error)
-              return Promise.resolve()
-            }
+          images.forEach(img => {
+            img.style.maxWidth = '100%'
+            img.style.height = 'auto'
           })
-          
-          // Wait for all images to be processed with a timeout
-          console.log(`Processing ${imagePromises.length} images...`)
-          setDownloadProgress('Processing images...')
-          await Promise.allSettled(imagePromises)
-          console.log('Image processing complete')
-          setDownloadProgress('Generating image...')
-          
-          console.log('CSS cleanup complete')
         }
       })
 
