@@ -28,6 +28,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
   const [isStatic, setIsStatic] = useState(false)
   const [isPreparingDownload, setIsPreparingDownload] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState('')
   const downloadCardRef = useRef<HTMLDivElement>(null)
 
   // This effect will run AFTER the component re-renders with isPreparingDownload = true
@@ -53,8 +54,40 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     if (!element) return
 
     try {
-      // Much shorter wait time - just enough for DOM updates
-      await new Promise(resolve => setTimeout(resolve, 300))
+      // First, ensure all images in the original DOM are loaded
+      const originalImages = element.querySelectorAll('img')
+      const originalImagePromises = Array.from(originalImages).map((img) => {
+        return new Promise<void>((resolve) => {
+          if (img.complete && img.naturalHeight !== 0) {
+            // Image is already loaded
+            resolve()
+          } else {
+            const timeout = setTimeout(() => {
+              console.warn('Original image load timeout for:', img.src)
+              resolve()
+            }, 3000)
+            
+            img.onload = () => {
+              clearTimeout(timeout)
+              resolve()
+            }
+            img.onerror = () => {
+              clearTimeout(timeout)
+              console.warn('Original image failed to load:', img.src)
+              resolve()
+            }
+          }
+        })
+      })
+      
+      console.log(`Waiting for ${originalImagePromises.length} original images to load...`)
+      setDownloadProgress('Loading images...')
+      await Promise.allSettled(originalImagePromises)
+      console.log('Original images loaded')
+      setDownloadProgress('Preparing download...')
+      
+      // Additional wait time for mobile devices
+      await new Promise(resolve => setTimeout(resolve, 500))
 
       const canvas = await html2canvas(element, {
         backgroundColor: '#0d1117',
@@ -93,16 +126,22 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
           const images = clonedDoc.querySelectorAll('img')
           const imagePromises = Array.from(images).map(async (img) => {
             try {
+              // If the image is already a data URL, skip processing
+              if (img.src.startsWith('data:')) {
+                console.log('Image is already a data URL, skipping conversion')
+                return Promise.resolve()
+              }
+              
               // Create a new image element to load the image
               const tempImg = document.createElement('img')
               tempImg.crossOrigin = 'anonymous'
               
               return new Promise<void>((resolve) => {
-                // Set a timeout to prevent hanging
+                // Set a longer timeout for mobile devices
                 const timeout = setTimeout(() => {
                   console.warn('Image processing timeout for:', img.src)
                   resolve()
-                }, 5000) // 5 second timeout
+                }, 8000) // 8 second timeout for mobile
                 
                 tempImg.onload = () => {
                   clearTimeout(timeout)
@@ -110,13 +149,15 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                     // Create a canvas to convert the image to data URL
                     const canvas = document.createElement('canvas')
                     const ctx = canvas.getContext('2d')
-                    if (ctx) {
+                    if (ctx && tempImg.width > 0 && tempImg.height > 0) {
                       canvas.width = tempImg.width
                       canvas.height = tempImg.height
                       ctx.drawImage(tempImg, 0, 0)
                       const dataUrl = canvas.toDataURL('image/png')
                       img.src = dataUrl
-                      console.log('Successfully converted image to data URL')
+                      console.log('Successfully converted image to data URL:', img.src.substring(0, 50) + '...')
+                    } else {
+                      console.warn('Invalid image dimensions or context:', tempImg.width, tempImg.height)
                     }
                     resolve()
                   } catch (error) {
@@ -129,7 +170,11 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                   console.warn('Failed to load image:', img.src)
                   resolve()
                 }
-                tempImg.src = img.src
+                
+                // Add a small delay before setting src to ensure proper loading
+                setTimeout(() => {
+                  tempImg.src = img.src
+                }, 100)
               })
             } catch (error) {
               console.warn('Error processing image:', error)
@@ -139,14 +184,17 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
           
           // Wait for all images to be processed with a timeout
           console.log(`Processing ${imagePromises.length} images...`)
+          setDownloadProgress('Processing images...')
           await Promise.allSettled(imagePromises)
           console.log('Image processing complete')
+          setDownloadProgress('Generating image...')
           
           console.log('CSS cleanup complete')
         }
       })
 
       // Convert canvas to image data URL
+      setDownloadProgress('Finalizing...')
       const dataUrl = canvas.toDataURL('image/png')
       
       // Trigger download
@@ -157,6 +205,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
       link.click()
       document.body.removeChild(link)
       console.log('Download triggered')
+      setDownloadProgress('Download complete!')
 
     } catch (error) {
       console.error('Failed to capture card as image:', error)
@@ -164,6 +213,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     } finally {
       setIsPreparingDownload(false)
       setIsDownloading(false)
+      setDownloadProgress('')
     }
   }
 
@@ -303,6 +353,16 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
                   </div>
                 )}
               </div>
+
+              {/* Download Progress */}
+              {isDownloading && downloadProgress && (
+                <div className="mb-4 p-3 bg-muted/50 rounded-lg border">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+                    {downloadProgress}
+                  </div>
+                </div>
+              )}
 
               {/* Profile Actions */}
               <ProfileActions onDownload={handleDownloadClick} />
