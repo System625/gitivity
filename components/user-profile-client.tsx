@@ -79,6 +79,30 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     canvasHeight: getDownloadConfig().canvasHeight
   })
 
+  // Image load verification helper
+  const waitForImageLoad = (img: HTMLImageElement): Promise<void> => {
+    return new Promise((resolve) => {
+      if (img.complete && img.naturalHeight !== 0) {
+        // Image is already loaded
+        resolve()
+      } else {
+        // Wait for image to load
+        const onLoad = () => {
+          img.removeEventListener('load', onLoad)
+          img.removeEventListener('error', onError)
+          resolve()
+        }
+        const onError = () => {
+          img.removeEventListener('load', onLoad)
+          img.removeEventListener('error', onError)
+          resolve() // Resolve even on error to avoid hanging
+        }
+        img.addEventListener('load', onLoad)
+        img.addEventListener('error', onError)
+      }
+    })
+  }
+
   const downloadCard = async () => {
     setIsStatic(true)
     setIsDownloadMode(true)
@@ -97,6 +121,16 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
     }
 
     const cardElement = cardRef.current
+    
+    // Wait for avatar image to load before proceeding
+    const avatarImg = cardElement.querySelector('img') as HTMLImageElement
+    if (avatarImg && profile.avatarUrl) {
+      await waitForImageLoad(avatarImg)
+      // Additional wait for mobile devices to ensure proper rendering
+      if (config.isMobile) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
     
     // Get actual content dimensions for better canvas sizing
     const rect = cardElement.getBoundingClientRect()   
@@ -479,7 +513,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
           Copy this link to share your Gitivity profile:
         </div>
         <div className="flex flex-col items-center space-y-3">
-          <div className="bg-muted px-4 py-2 rounded-md font-mono text-sm max-w-md mx-auto">
+          <div className="bg-muted px-4 py-2 rounded-md font-mono text-sm">
             {typeof window !== 'undefined' ? window.location.href : `https://gitivity.vercel.app/user/${profile.username}`}
           </div>
           <CopyLinkButton url={typeof window !== 'undefined' ? window.location.href : `https://gitivity.vercel.app/user/${profile.username}`} />
