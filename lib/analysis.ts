@@ -395,26 +395,62 @@ function calculateMultipliers(data: GitHubProfileData, achievements: Achievement
 
 export type { Achievement, GitivityScoreBreakdown, GitivityStats, GitivityProfile }
 
-export async function analyzeUser(username: string): Promise<GitivityProfile | null> {
+export async function analyzeUser(username: string, forceRefresh: boolean = false): Promise<GitivityProfile | null> {
   try {
-    // Step 1: Check Cache - TEMPORARILY DISABLED FOR TESTING NEW SCORING
-    // const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    
-    // const cachedProfile = await prisma.gitivityProfile.findFirst({
-    //   where: {
-    //     username: username.toLowerCase(),
-    //     updatedAt: {
-    //       gte: twentyFourHoursAgo
-    //     }
-    //   }
-    // })
-
-    // if (cachedProfile) {
-    //   return cachedProfile
-    // }
+    // Step 1: Check Cache (re-enabled)
+    if (!forceRefresh) {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      
+      const cachedProfile = await prisma.gitivityProfile.findFirst({
+        where: {
+          username: username.toLowerCase(),
+          updatedAt: {
+            gte: twentyFourHoursAgo
+          }
+        }
+      })
+      
+      if (cachedProfile) {
+        const { rank, totalUsers } = await getUserRank(cachedProfile.score, cachedProfile.username)
+        return {
+          ...cachedProfile,
+          stats: cachedProfile.stats as unknown as GitivityStats,
+          rank,
+          totalUsers
+        }
+      }
+    }
 
     // Step 2: Fetch Live Data
-    const githubData = await getGithubProfileData(username)
+    let githubData: GitHubProfileData | null = null
+    try {
+      githubData = await getGithubProfileData(username)
+    } catch (error) {
+      console.error(`GitHub API error for user ${username}:`, error)
+      // If we have cached data and the error is rate limiting, return cached data
+      if (error instanceof Error && error.message.includes('rate limit')) {
+        const cachedProfile = await prisma.gitivityProfile.findFirst({
+          where: {
+            username: username.toLowerCase()
+          },
+          orderBy: {
+            updatedAt: 'desc'
+          }
+        })
+        
+        if (cachedProfile) {
+          console.log(`Returning cached data for ${username} due to rate limiting`)
+          const { rank, totalUsers } = await getUserRank(cachedProfile.score, cachedProfile.username)
+          return {
+            ...cachedProfile,
+            stats: cachedProfile.stats as unknown as GitivityStats,
+            rank,
+            totalUsers
+          }
+        }
+      }
+      throw error // Re-throw if we can't recover
+    }
     
     if (!githubData) {
       console.error(`Failed to fetch GitHub data for user: ${username}`)

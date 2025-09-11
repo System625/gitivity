@@ -5,16 +5,47 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/stateful-button"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import { useState } from "react"
 
 interface ProfileActionsProps {
+  username?: string
   onDownload?: () => Promise<void>
 }
 
-export function ProfileActions({ onDownload }: ProfileActionsProps) {
+export function ProfileActions({ username, onDownload }: ProfileActionsProps) {
   const router = useRouter()
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const handleRefresh = () => {
-    router.refresh()
+  const handleRefresh = async () => {
+    if (!username) {
+      router.refresh()
+      return
+    }
+
+    setIsRefreshing(true)
+    try {
+      const response = await fetch(`/api/user/${username}/refresh`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to refresh profile')
+      }
+
+      const result = await response.json()
+      if (result.success) {
+        toast.success('Profile refreshed successfully!')
+        router.refresh()
+      } else {
+        throw new Error(result.error || 'Failed to refresh profile')
+      }
+    } catch (error) {
+      console.error('Error refreshing profile:', error)
+      toast.error('Failed to refresh profile. Please try again.')
+    } finally {
+      setIsRefreshing(false)
+    }
   }
 
   // Consistent button classes for all actions
@@ -44,11 +75,15 @@ export function ProfileActions({ onDownload }: ProfileActionsProps) {
 
         <button
           onClick={handleRefresh}
-          className={actionBtnClass}
+          disabled={isRefreshing}
+          className={cn(actionBtnClass, isRefreshing && "opacity-50 cursor-not-allowed")}
           type="button"
         >
-          <Icon icon="mdi:refresh" className="w-5 h-5" />
-          <span>Refresh</span>
+          <Icon 
+            icon={isRefreshing ? "mdi:loading" : "mdi:refresh"} 
+            className={cn("w-5 h-5", isRefreshing && "animate-spin")} 
+          />
+          <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
         </button>
 
         {onDownload && (

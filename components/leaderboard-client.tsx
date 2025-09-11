@@ -22,7 +22,7 @@ interface LeaderboardProfile {
   score: number;
   avatarUrl: string | null;
   stats: JsonValue;
-  updatedAt: Date;
+  updatedAt: string;
 }
 
 interface LeaderboardClientProps {

@@ -16,9 +16,15 @@ export default async function LeaderboardPage() {
     }
   })
 
+  // Convert dates to strings for serialization
+  const serializedProfiles = topProfiles.map(profile => ({
+    ...profile,
+    updatedAt: profile.updatedAt.toISOString()
+  }))
+
   return (
     <>      
-      <LeaderboardClient initialProfiles={topProfiles} />
+      <LeaderboardClient initialProfiles={serializedProfiles} />
     </>
   )
 }

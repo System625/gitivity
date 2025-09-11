@@ -101,11 +101,54 @@ export async function getGithubProfileData(username: string): Promise<GitHubProf
       })
     })
 
+    // Check for HTTP-level errors
+    if (!response.ok) {
+      console.error(`GitHub API HTTP error: ${response.status} ${response.statusText}`)
+      
+      if (response.status === 401) {
+        throw new Error('Invalid GitHub token. Please check GITHUB_PAT environment variable.')
+      }
+      
+      if (response.status === 403) {
+        const resetTime = response.headers.get('x-ratelimit-reset')
+        const resetDate = resetTime ? new Date(parseInt(resetTime) * 1000) : null
+        throw new Error(`GitHub API rate limit exceeded. ${resetDate ? `Resets at ${resetDate.toISOString()}` : 'Try again later.'}`)
+      }
+      
+      if (response.status >= 500) {
+        throw new Error('GitHub API is temporarily unavailable. Please try again later.')
+      }
+      
+      throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+    }
+
     const data = await response.json()
 
     if (data.errors) {
-      console.error('GitHub API error:', data.errors)
-      return null
+      console.error('GitHub API GraphQL errors:', data.errors)
+      
+      // Check for rate limit errors in GraphQL response
+      const rateLimitError = data.errors.find((error: { type?: string; message?: string }) => 
+        error.type === 'RATE_LIMITED' || 
+        error.message?.includes('rate limit') ||
+        error.message?.includes('API rate limit')
+      )
+      
+      if (rateLimitError) {
+        throw new Error('GitHub API rate limit exceeded. Please try again later.')
+      }
+      
+      // Check for authentication errors
+      const authError = data.errors.find((error: { type?: string; message?: string }) => 
+        error.type === 'FORBIDDEN' || 
+        error.message?.includes('Bad credentials')
+      )
+      
+      if (authError) {
+        throw new Error('GitHub authentication failed. Please check your token.')
+      }
+      
+      throw new Error(`GitHub API error: ${data.errors[0].message}`)
     }
 
     if (!data.data?.user) {

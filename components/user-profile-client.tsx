@@ -284,7 +284,7 @@ export function UserProfileClient({ profile, stats }: UserProfileClientProps) {
               )}
 
               {/* Profile Actions */}
-              <ProfileActions onDownload={handleDownloadClick} />
+              <ProfileActions username={profile.username} onDownload={handleDownloadClick} />
             </div>
           </CometCard>
         </div>
