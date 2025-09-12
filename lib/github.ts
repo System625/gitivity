@@ -1,3 +1,6 @@
+import { trackError } from "@/lib/error-tracker"
+import { recordRateLimit } from "@/lib/metrics"
+
 export interface GitHubProfileData {
   username: string
   name: string | null
@@ -26,6 +29,102 @@ export interface GitHubProfileData {
 }
 
 const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql'
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries: number = 3): Promise<Response> {
+  let lastError: Error
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options)
+      
+      // Don't retry on client errors (4xx) except for rate limits
+      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+        return response
+      }
+      
+      // Don't retry on successful responses
+      if (response.ok) {
+        return response
+      }
+      
+      // For server errors (5xx) or rate limits (429), retry with exponential backoff
+      if (attempt < maxRetries) {
+        const backoffDelay = Math.min(1000 * Math.pow(2, attempt - 1), 10000)
+        console.warn(`GitHub API attempt ${attempt} failed with status ${response.status}, retrying in ${backoffDelay}ms`)
+        await sleep(backoffDelay)
+        continue
+      }
+      
+      return response
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      
+      if (attempt < maxRetries) {
+        const backoffDelay = Math.min(1000 * Math.pow(2, attempt - 1), 10000)
+        console.warn(`GitHub API attempt ${attempt} failed with network error, retrying in ${backoffDelay}ms:`, error)
+        await sleep(backoffDelay)
+        continue
+      }
+    }
+  }
+  
+  throw lastError!
+}
+
+function validateGitHubResponse(data: unknown): boolean {
+  // Validate basic structure
+  if (!data || typeof data !== 'object') return false
+  const dataObj = data as Record<string, unknown>
+  if (!dataObj.data || typeof dataObj.data !== 'object') return false
+  const dataData = dataObj.data as Record<string, unknown>
+  if (!dataData.user || typeof dataData.user !== 'object') return false
+  
+  const user = dataData.user as Record<string, unknown>
+  
+  // Validate required fields
+  const requiredStringFields = ['login', 'avatarUrl', 'createdAt', 'updatedAt']
+  for (const field of requiredStringFields) {
+    if (typeof user[field] !== 'string') return false
+  }
+  
+  // Validate nested objects with required structure
+  const followers = user.followers as Record<string, unknown> | undefined
+  const following = user.following as Record<string, unknown> | undefined
+  const repositories = user.repositories as Record<string, unknown> | undefined
+  const issues = user.issues as Record<string, unknown> | undefined
+  const pullRequests = user.pullRequests as Record<string, unknown> | undefined
+  const contributionsCollection = user.contributionsCollection as Record<string, unknown> | undefined
+
+  if (!followers || typeof followers.totalCount !== 'number') return false
+  if (!following || typeof following.totalCount !== 'number') return false
+  if (!repositories || typeof repositories.totalCount !== 'number') return false
+  if (!Array.isArray(repositories.nodes)) return false
+  if (!issues || typeof issues.totalCount !== 'number') return false
+  if (!pullRequests || typeof pullRequests.totalCount !== 'number') return false
+  if (!contributionsCollection || typeof contributionsCollection !== 'object') return false
+  
+  // Validate contributionsCollection
+  for (const field of ['totalCommitContributions', 'totalIssueContributions', 'totalPullRequestContributions', 'totalPullRequestReviewContributions']) {
+    if (typeof contributionsCollection[field] !== 'number') return false
+  }
+  
+  // Validate repositories structure
+  for (const repo of repositories.nodes as unknown[]) {
+    const repoObj = repo as Record<string, unknown>
+    if (typeof repoObj !== 'object' || repoObj === null) return false
+    if (typeof repoObj.stargazerCount !== 'number') return false
+    if (typeof repoObj.forkCount !== 'number') return false
+    if (typeof repoObj.isFork !== 'boolean') return false
+    const repoIssues = repoObj.issues as Record<string, unknown> | undefined
+    if (!repoIssues || typeof repoIssues.totalCount !== 'number') return false
+  }
+  
+  return true
+}
 
 export async function getGithubProfileData(username: string): Promise<GitHubProfileData | null> {
   const token = process.env.GITHUB_PAT
@@ -89,7 +188,7 @@ export async function getGithubProfileData(username: string): Promise<GitHubProf
   `
 
   try {
-    const response = await fetch(GITHUB_GRAPHQL_URL, {
+    const response = await fetchWithRetry(GITHUB_GRAPHQL_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -103,26 +202,41 @@ export async function getGithubProfileData(username: string): Promise<GitHubProf
 
     // Check for HTTP-level errors
     if (!response.ok) {
-      console.error(`GitHub API HTTP error: ${response.status} ${response.statusText}`)
       
-      if (response.status === 401) {
-        throw new Error('Invalid GitHub token. Please check GITHUB_PAT environment variable.')
-      }
+      const error = response.status === 401 
+        ? new Error('Invalid GitHub token. Please check GITHUB_PAT environment variable.')
+        : response.status === 403
+        ? (() => {
+            const resetTime = response.headers.get('x-ratelimit-reset')
+            const resetDate = resetTime ? new Date(parseInt(resetTime) * 1000) : null
+            return new Error(`GitHub API rate limit exceeded. ${resetDate ? `Resets at ${resetDate.toISOString()}` : 'Try again later.'}`)
+          })()
+        : response.status >= 500
+        ? new Error('GitHub API is temporarily unavailable. Please try again later.')
+        : new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+
+      trackError(error, {
+        operation: 'github-http-request',
+        component: 'github-api',
+        httpStatus: response.status,
+        username
+      })
       
-      if (response.status === 403) {
-        const resetTime = response.headers.get('x-ratelimit-reset')
-        const resetDate = resetTime ? new Date(parseInt(resetTime) * 1000) : null
-        throw new Error(`GitHub API rate limit exceeded. ${resetDate ? `Resets at ${resetDate.toISOString()}` : 'Try again later.'}`)
-      }
-      
-      if (response.status >= 500) {
-        throw new Error('GitHub API is temporarily unavailable. Please try again later.')
-      }
-      
-      throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+      throw error
     }
 
     const data = await response.json()
+
+    // Validate response structure before processing
+    if (!validateGitHubResponse(data)) {
+      const error = new Error('GitHub API returned invalid response format')
+      trackError(error, {
+        operation: 'github-response-validation',
+        component: 'github-api',
+        username
+      })
+      throw error
+    }
 
     if (data.errors) {
       console.error('GitHub API GraphQL errors:', data.errors)
@@ -155,13 +269,24 @@ export async function getGithubProfileData(username: string): Promise<GitHubProf
       return null
     }
 
+    // Record rate limit metrics
+    if (data.data.rateLimit) {
+      recordRateLimit(data.data.rateLimit.remaining, data.data.rateLimit.resetAt)
+    }
+
     const user = data.data.user
     const repos = user.repositories.nodes
 
     // Only count stars/forks from original repos (not forks)
     const originalRepos = repos.filter((repo: Record<string, unknown>) => !repo.isFork)
-    const totalStarsReceived = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => sum + (repo.stargazerCount as number), 0)
-    const totalForksReceived = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => sum + (repo.forkCount as number), 0)
+    const totalStarsReceived = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => {
+      const stars = repo.stargazerCount as number
+      return sum + (typeof stars === 'number' && stars >= 0 ? stars : 0)
+    }, 0)
+    const totalForksReceived = originalRepos.reduce((sum: number, repo: Record<string, unknown>) => {
+      const forks = repo.forkCount as number
+      return sum + (typeof forks === 'number' && forks >= 0 ? forks : 0)
+    }, 0)
 
     // Get total commits from contributions collection
     const totalCommits = user.contributionsCollection.totalCommitContributions
@@ -241,7 +366,8 @@ export async function getGithubProfileData(username: string): Promise<GitHubProf
     }
 
   } catch (error) {
-    console.error('Error fetching GitHub data:', error)
-    return null
+    // Logging will be handled by the calling function (analysis.ts)
+    // Re-throw to preserve error handling flow
+    throw error
   }
 }

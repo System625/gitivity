@@ -1,13 +1,12 @@
 import { prisma } from "@/lib/prisma"
 import { getGithubProfileData, type GitHubProfileData } from "@/lib/github"
-
-interface Achievement {
-  id: string
-  name: string
-  description: string
-  icon: string
-  earned: boolean
-}
+import { revalidatePath } from "next/cache"
+import { calculateAchievements, type Achievement } from "@/lib/scoring/achievements"
+import { calculateMultipliers } from "@/lib/scoring/multipliers"
+import { calculateCreatorScore, calculateCollaboratorScore, calculateCraftsmanshipScore } from "@/lib/scoring/pillars"
+import { logger, createUserLogger } from "@/lib/logger"
+import { trackError, withErrorContext } from "@/lib/error-tracker"
+import { metrics } from "@/lib/metrics"
 
 interface GitivityScoreBreakdown {
   total: number
@@ -71,29 +70,57 @@ interface GitivityProfile {
 }
 
 async function getUserRank(userScore: number, username: string): Promise<{ rank: number; totalUsers: number }> {
-  try {
-    // Count users with scores higher than current user
-    const higherScoreCount = await prisma.gitivityProfile.count({
-      where: {
-        score: {
-          gt: userScore
-        }
-      }
-    })
+  return await metrics.time('calculate-user-rank', async () => {
+    try {
+      // Count users with scores higher than current user
+      const higherScoreCount = await metrics.time('database-query', async () => {
+        return await prisma.gitivityProfile.count({
+          where: {
+            score: {
+              gt: userScore
+            }
+          }
+        })
+      }, { operation: 'count-higher-scores' })
 
-    // Count total users in database
-    const totalUsers = await prisma.gitivityProfile.count()
+      // Count total users in database
+      const totalUsers = await metrics.time('database-query', async () => {
+        return await prisma.gitivityProfile.count()
+      }, { operation: 'count-total-users' })
 
-    // Rank is position (1-based, so add 1)
-    const rank = higherScoreCount + 1
+      // Rank is position (1-based, so add 1)
+      const rank = higherScoreCount + 1
 
-    return { rank, totalUsers }
-  } catch (error) {
-    console.error('Error calculating user rank:', error)
-    return { rank: 0, totalUsers: 0 }
-  }
+      return { rank, totalUsers }
+    } catch (error) {
+      logger.error('Error calculating user rank', { username }, error as Error)
+      return { rank: 0, totalUsers: 0 }
+    }
+  }, { username })
 }
 
+/**
+ * Calculates the comprehensive Gitivity score using a multi-dimensional system.
+ * Combines three pillars (Creator, Collaborator, Craftsmanship) with achievements and multipliers.
+ * 
+ * @param data - Complete GitHub profile data for scoring calculation
+ * @returns GitivityScoreBreakdown with total score and component breakdown
+ * 
+ * @example
+ * // High-performing developer
+ * const breakdown = calculateGitivityScore(data)
+ * // Returns: { 
+ * //   total: 142, creatorScore: 87, collaboratorScore: 76, 
+ * //   craftsmanshipScore: 82, achievements: [...], multipliers: [...] 
+ * // }
+ * 
+ * Scoring System:
+ * 1. Calculate three pillar scores (0-100 each)
+ * 2. Average them to get base score (0-100) 
+ * 3. Award achievements based on exceptional metrics
+ * 4. Apply multipliers from achievements (can exceed 100%)
+ * 5. No upper cap - elite developers can score above 100%
+ */
 function calculateGitivityScore(data: GitHubProfileData): GitivityScoreBreakdown {
   // 1. CREATOR SCORE - Impact of personal projects (0-100)
   const creatorScore = calculateCreatorScore(data)
@@ -132,285 +159,73 @@ function calculateGitivityScore(data: GitHubProfileData): GitivityScoreBreakdown
   }
 }
 
-function calculateCreatorScore(data: GitHubProfileData): number {
-  let score = 0
-  
-  // ✨ STARS - Logarithmic scaling for viral impact (0-40 points)
-  // 1 star = 5pts, 10 stars = 10pts, 100 stars = 15pts, 1K stars = 20pts, 10K stars = 25pts, 24K stars = ~27pts
-  const starScore = Math.min(40, Math.log10(Math.max(1, data.totalStarsReceived)) * 8)
-  score += starScore
-  
-  // 🍴 FORKS - Network effect scaling (0-30 points)  
-  // 1 fork = 3pts, 10 forks = 6pts, 100 forks = 9pts, 1K forks = 12pts, 10K forks = 15pts, 158K forks = ~19pts
-  const forkScore = Math.min(30, Math.log10(Math.max(1, data.totalForksReceived)) * 6)
-  score += forkScore
-  
-  // 📦 REPOSITORY PORTFOLIO - Quality over quantity (0-20 points)
-  // Balanced approach: 10 repos = 12pts, 50 repos = 17pts, 200+ repos = 20pts
-  const repoScore = Math.min(20, Math.log10(Math.max(1, data.publicRepos)) * 10)
-  score += repoScore
-  
-  // 💚 REPOSITORY HEALTH - Maintenance quality (0-10 points)
-  const healthBonus = data.repositoryHealth.ratio * 10
-  score += healthBonus
-  
-  return Math.min(score, 100) // Cap at 100 for this pillar
-}
 
-function calculateCollaboratorScore(data: GitHubProfileData): number {
-  let score = 0
-
-  // 🔥 PULL REQUESTS - Logarithmic scaling for high-volume contributors (0-50 points)
-  // 1 PR = 8pts, 10 PRs = 16pts, 100 PRs = 24pts, 1K PRs = 32pts, 10K PRs = 40pts
-  const prScore = Math.min(50, Math.log10(Math.max(1, data.totalPRsMerged)) * 16)
-  score += prScore
-
-  // 🐛 ISSUE RESOLUTION - Community problem solving (0-20 points)
-  // 1 issue = 6pts, 10 issues = 12pts, 100 issues = 18pts, 1K issues = 20pts
-  const issueScore = Math.min(20, Math.log10(Math.max(1, data.totalIssuesClosed)) * 6)
-  score += issueScore
-
-  // 👥 CODE REVIEWS - Mentorship and collaboration (0-20 points)
-  // 1 review = 5pts, 10 reviews = 10pts, 100 reviews = 15pts, 1K reviews = 20pts
-  const reviewScore = Math.min(20, Math.log10(Math.max(1, data.totalReviewsGiven)) * 5)
-  score += reviewScore
-
-  // ✅ FINISHER RATIO - Execution quality bonus (0-10 points)
-  const finisherRatio = data.totalPRsOpened > 0 
-    ? data.totalPRsMerged / data.totalPRsOpened 
-    : 1.0
-  const finisherBonus = finisherRatio * 10 // Perfect finisher gets 10 bonus points
-  score += finisherBonus
-
-  return Math.min(score, 100) // Cap at 100 for this pillar
-}
-
-function calculateCraftsmanshipScore(data: GitHubProfileData): number {
-  let score = 0
-
-  // 📈 COMMIT ACTIVITY - Logarithmic scaling for prolific coders (0-40 points)
-  // 10 commits = 8pts, 100 commits = 16pts, 1K commits = 24pts, 10K commits = 32pts, 100K commits = 40pts
-  const commitScore = Math.min(40, Math.log10(Math.max(1, data.totalCommits)) * 8)
-  score += commitScore
-
-  // 🌍 LANGUAGE DIVERSITY - Technical breadth (0-25 points)
-  // 1 lang = 8pts, 3 langs = 15pts, 5 langs = 20pts, 10+ langs = 25pts
-  const languageScore = Math.min(25, data.languages.length * 3 + Math.log10(Math.max(1, data.languages.length)) * 5)
-  score += languageScore
-
-  // 🔥 CONTRIBUTION CONSISTENCY - Sustained effort (0-20 points)
-  // Linear scaling for streaks: 10 days = 10pts, 30 days = 20pts
-  const streakScore = Math.min(20, data.contributionStreak.current * 0.67)
-  score += streakScore
-
-  // 🏛️ ACCOUNT MATURITY - Experience bonus (0-15 points)
-  // More weight for experience: 1 year = 5pts, 5 years = 10pts, 14 years = 14pts
-  const accountAge = (Date.now() - new Date(data.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 365)
-  const maturityScore = Math.min(15, Math.log10(Math.max(1, accountAge)) * 7)
-  score += maturityScore
-
-  return Math.min(score, 100) // Cap at 100 for this pillar
-}
-
-function calculateAchievements(data: GitHubProfileData): Achievement[] {
-  const achievements: Achievement[] = []
-
-  // 🌟 VIRAL CREATOR - Exceptional impact
-  if (data.totalStarsReceived >= 10000) {
-    achievements.push({
-      id: 'viral-creator',
-      name: 'Viral Creator',
-      description: `${data.totalStarsReceived.toLocaleString()} stars - Exceptional impact`,
-      icon: '🌟',
-      earned: true
-    })
-  } else if (data.totalStarsReceived >= 1000) {
-    achievements.push({
-      id: 'star-creator',
-      name: 'Star Creator', 
-      description: `${data.totalStarsReceived.toLocaleString()} stars earned`,
-      icon: '⭐',
-      earned: true
-    })
-  } else if (data.totalStarsReceived >= 100) {
-    achievements.push({
-      id: 'rising-star',
-      name: 'Rising Star',
-      description: `${data.totalStarsReceived} stars earned`,
-      icon: '✨',
-      earned: true
-    })
-  }
-
-  // 🚀 NETWORK EFFECT - Fork multiplication
-  if (data.totalForksReceived >= 50000) {
-    achievements.push({
-      id: 'ecosystem-builder',
-      name: 'Ecosystem Builder',
-      description: `${data.totalForksReceived.toLocaleString()} forks - Massive adoption`,
-      icon: '🚀',
-      earned: true
-    })
-  } else if (data.totalForksReceived >= 1000) {
-    achievements.push({
-      id: 'community-favorite',
-      name: 'Community Favorite',
-      description: `${data.totalForksReceived.toLocaleString()} forks`,
-      icon: '💖',
-      earned: true
-    })
-  }
-
-  // 👥 INFLUENCE - Follower count
-  if (data.followers >= 10000) {
-    achievements.push({
-      id: 'influencer',
-      name: 'GitHub Influencer',
-      description: `${data.followers.toLocaleString()} followers`,
-      icon: '👑',
-      earned: true
-    })
-  } else if (data.followers >= 1000) {
-    achievements.push({
-      id: 'community-leader',
-      name: 'Community Leader',
-      description: `${data.followers.toLocaleString()} followers`,
-      icon: '👥',
-      earned: true
-    })
-  }
-
-  // 🌍 POLYGLOT - Language mastery
-  if (data.languages.length >= 10) {
-    achievements.push({
-      id: 'polyglot-master',
-      name: 'Polyglot Master',
-      description: `Expert in ${data.languages.length} languages`,
-      icon: '🌍',
-      earned: true
-    })
-  } else if (data.languages.length >= 5) {
-    achievements.push({
-      id: 'polyglot',
-      name: 'Polyglot',
-      description: `Proficient in ${data.languages.length} languages`,
-      icon: '🗣️',
-      earned: true
-    })
-  }
-
-  // 🏛️ VETERAN - Account age
-  const accountAge = (Date.now() - new Date(data.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 365)
-  if (accountAge >= 10) {
-    achievements.push({
-      id: 'veteran',
-      name: 'GitHub Veteran',
-      description: `${Math.floor(accountAge)} years of experience`,
-      icon: '🏛️',
-      earned: true
-    })
-  }
-
-  // 🔥 CONSISTENCY - Streak tracking
-  if (data.contributionStreak.current >= 100) {
-    achievements.push({
-      id: 'consistency-master',
-      name: 'Consistency Master',
-      description: `${data.contributionStreak.current} day streak`,
-      icon: '🔥',
-      earned: true
-    })
-  } else if (data.contributionStreak.current >= 30) {
-    achievements.push({
-      id: 'consistent',
-      name: 'Consistent Contributor',
-      description: `${data.contributionStreak.current} day streak`,
-      icon: '📈',
-      earned: true
-    })
-  }
-
-  return achievements
-}
-
-function calculateMultipliers(data: GitHubProfileData, achievements: Achievement[]): { name: string; value: number }[] {
-  const multipliers: { name: string; value: number }[] = []
-
-  // 🚀 ELITE TIER MULTIPLIERS - For world-class contributors
-  achievements.forEach(achievement => {
-    if (achievement.earned) {
-      switch (achievement.id) {
-        case 'viral-creator':
-          multipliers.push({ name: 'Viral Creator Elite', value: 1.5 })
-          break
-        case 'ecosystem-builder':
-          multipliers.push({ name: 'Ecosystem Builder Elite', value: 1.4 })
-          break
-        case 'influencer':
-          multipliers.push({ name: 'GitHub Influencer', value: 1.3 })
-          break
-        case 'star-creator':
-          multipliers.push({ name: 'Star Creator', value: 1.25 })
-          break
-        case 'community-favorite':
-          multipliers.push({ name: 'Community Favorite', value: 1.2 })
-          break
-        case 'community-leader':
-          multipliers.push({ name: 'Community Leader', value: 1.15 })
-          break
-        case 'veteran':
-          multipliers.push({ name: 'GitHub Veteran', value: 1.2 })
-          break
-        case 'polyglot-master':
-          multipliers.push({ name: 'Polyglot Master', value: 1.15 })
-          break
-        case 'consistency-master':
-          multipliers.push({ name: 'Consistency Master', value: 1.15 })
-          break
-        case 'rising-star':
-          multipliers.push({ name: 'Rising Star', value: 1.1 })
-          break
-        case 'polyglot':
-          multipliers.push({ name: 'Polyglot', value: 1.08 })
-          break
-        case 'consistent':
-          multipliers.push({ name: 'Consistent Contributor', value: 1.05 })
-          break
-      }
-    }
-  })
-  
-  // 📈 ACTIVITY RECENCY MULTIPLIER
-  const daysSinceLastUpdate = (Date.now() - new Date(data.updatedAt).getTime()) / (1000 * 60 * 60 * 24)
-  if (daysSinceLastUpdate < 7) {
-    multipliers.push({ name: 'Active This Week', value: 1.1 })
-  } else if (daysSinceLastUpdate < 30) {
-    multipliers.push({ name: 'Recent Activity', value: 1.05 })
-  } else if (daysSinceLastUpdate < 90) {
-    multipliers.push({ name: 'Active Developer', value: 1.02 })
-  }
-
-  return multipliers
-}
+// Request deduplication cache to prevent concurrent requests for the same user
+const pendingRequests = new Map<string, Promise<GitivityProfile | null>>()
 
 export type { Achievement, GitivityScoreBreakdown, GitivityStats, GitivityProfile }
 
 export async function analyzeUser(username: string, forceRefresh: boolean = false): Promise<GitivityProfile | null> {
-  try {
-    // Step 1: Check Cache (re-enabled)
+  const cacheKey = username.toLowerCase()
+  
+  return await withErrorContext('analyze-user', async () => {
+    try {
+      // Step 0: Check for pending request for the same user
+      if (!forceRefresh && pendingRequests.has(cacheKey)) {
+        logger.debug(`Deduplicating request for user: ${username}`)
+        return await pendingRequests.get(cacheKey)!
+      }
+
+      // Create the analysis promise
+      const analysisPromise = performAnalysis(username, forceRefresh)
+      
+      // Store the promise to deduplicate concurrent requests
+      pendingRequests.set(cacheKey, analysisPromise)
+      
+      try {
+        const result = await analysisPromise
+        return result
+      } finally {
+        // Clean up the pending request when done
+        pendingRequests.delete(cacheKey)
+      }
+    } catch (error) {
+      // Clean up on error too
+      pendingRequests.delete(cacheKey)
+      throw error
+    }
+  }, {
+    username,
+    component: 'analysis',
+    forceRefresh
+  })
+}
+
+async function performAnalysis(username: string, forceRefresh: boolean = false): Promise<GitivityProfile | null> {
+  const userLogger = createUserLogger(username)
+  
+  return await userLogger.timeAsync('user-analysis', async () => {
+    try {
+      // Step 1: Check Cache (re-enabled)
     if (!forceRefresh) {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
       
-      const cachedProfile = await prisma.gitivityProfile.findFirst({
-        where: {
-          username: username.toLowerCase(),
-          updatedAt: {
-            gte: twentyFourHoursAgo
+      const cachedProfile = await metrics.time('database-query', async () => {
+        return await prisma.gitivityProfile.findFirst({
+          where: {
+            username: username.toLowerCase(),
+            updatedAt: {
+              gte: twentyFourHoursAgo
+            }
           }
-        }
-      })
+        })
+      }, { operation: 'find-cached-profile', username })
       
       if (cachedProfile) {
+        userLogger.info('Using cached profile', { 
+          cacheAge: Date.now() - cachedProfile.updatedAt.getTime(),
+          score: cachedProfile.score 
+        })
         const { rank, totalUsers } = await getUserRank(cachedProfile.score, cachedProfile.username)
         return {
           ...cachedProfile,
@@ -424,9 +239,29 @@ export async function analyzeUser(username: string, forceRefresh: boolean = fals
     // Step 2: Fetch Live Data
     let githubData: GitHubProfileData | null = null
     try {
-      githubData = await getGithubProfileData(username)
+      userLogger.debug('Fetching live GitHub data')
+      githubData = await metrics.time('github-api-fetch', async () => {
+        return await getGithubProfileData(username)
+      }, { username })
+      userLogger.info('Successfully fetched GitHub data', {
+        repos: githubData?.publicRepos,
+        stars: githubData?.totalStarsReceived,
+        commits: githubData?.totalCommits
+      })
+      
+      // Record GitHub data metrics
+      if (githubData) {
+        metrics.recordMetric('github_profile_repos', githubData.publicRepos, 'count', { username })
+        metrics.recordMetric('github_profile_stars', githubData.totalStarsReceived, 'count', { username })
+        metrics.recordMetric('github_profile_commits', githubData.totalCommits, 'count', { username })
+      }
     } catch (error) {
-      console.error(`GitHub API error for user ${username}:`, error)
+      userLogger.error('GitHub API error', { error: error instanceof Error ? error.message : String(error) }, error as Error)
+      trackError(error as Error, {
+        username,
+        operation: 'github-api-fetch',
+        component: 'analysis'
+      })
       // If we have cached data and the error is rate limiting, return cached data
       if (error instanceof Error && error.message.includes('rate limit')) {
         const cachedProfile = await prisma.gitivityProfile.findFirst({
@@ -439,7 +274,9 @@ export async function analyzeUser(username: string, forceRefresh: boolean = fals
         })
         
         if (cachedProfile) {
-          console.log(`Returning cached data for ${username} due to rate limiting`)
+          userLogger.warn('Falling back to cached data due to rate limiting', {
+            cacheAge: Date.now() - cachedProfile.updatedAt.getTime()
+          })
           const { rank, totalUsers } = await getUserRank(cachedProfile.score, cachedProfile.username)
           return {
             ...cachedProfile,
@@ -453,12 +290,30 @@ export async function analyzeUser(username: string, forceRefresh: boolean = fals
     }
     
     if (!githubData) {
-      console.error(`Failed to fetch GitHub data for user: ${username}`)
+      userLogger.error('Failed to fetch GitHub data - user may not exist')
       return null
     }
 
     // Step 3: Calculate Score with new multi-dimensional system
-    const scoreBreakdown = calculateGitivityScore(githubData)
+    userLogger.debug('Calculating Gitivity score')
+    const scoreBreakdown = await metrics.time('calculate-score', async () => {
+      return calculateGitivityScore(githubData)
+    }, { username })
+    
+    userLogger.info('Score calculated', {
+      totalScore: scoreBreakdown.total,
+      creatorScore: scoreBreakdown.creatorScore,
+      collaboratorScore: scoreBreakdown.collaboratorScore,
+      craftsmanshipScore: scoreBreakdown.craftsmanshipScore,
+      achievementCount: scoreBreakdown.achievements.length,
+      multiplierCount: scoreBreakdown.multipliers.length
+    })
+
+    // Record scoring metrics
+    metrics.recordMetric('gitivity_score_total', scoreBreakdown.total, 'points', { username })
+    metrics.recordMetric('gitivity_score_creator', scoreBreakdown.creatorScore, 'points', { username })
+    metrics.recordMetric('gitivity_score_collaborator', scoreBreakdown.collaboratorScore, 'points', { username })
+    metrics.recordMetric('gitivity_score_craftsmanship', scoreBreakdown.craftsmanshipScore, 'points', { username })
 
     // Prepare enhanced stats object
     const stats: GitivityStats = {
@@ -502,7 +357,9 @@ export async function analyzeUser(username: string, forceRefresh: boolean = fals
     }
 
     // Step 4: Save to Database using upsert
-    const profile = await prisma.gitivityProfile.upsert({
+    userLogger.debug('Saving profile to database')
+    const profile = await metrics.time('database-query', async () => {
+      return await prisma.gitivityProfile.upsert({
       where: {
         username: username.toLowerCase()
       },
@@ -519,9 +376,23 @@ export async function analyzeUser(username: string, forceRefresh: boolean = fals
         avatarUrl: githubData.avatarUrl
       }
     })
+    }, { operation: 'upsert-profile', username })
+
+    // Revalidate leaderboard to show new/updated profile
+    try {
+      revalidatePath('/leaderboard')
+      userLogger.debug('Leaderboard revalidated')
+    } catch (error) {
+      userLogger.warn('Revalidation failed (expected in development)', {}, error as Error)
+    }
 
     // Step 5: Calculate Rank
     const { rank, totalUsers } = await getUserRank(scoreBreakdown.total, username)
+    userLogger.info('Analysis completed successfully', {
+      finalScore: scoreBreakdown.total,
+      rank,
+      totalUsers
+    })
     
     // Step 6: Return Result with rank information
     return {
@@ -530,8 +401,9 @@ export async function analyzeUser(username: string, forceRefresh: boolean = fals
       totalUsers
     } as unknown as GitivityProfile
 
-  } catch (error) {
-    console.error('Error in analyzeUser:', error)
-    return null
-  }
+    } catch (error) {
+      userLogger.error('Analysis failed', {}, error as Error)
+      return null
+    }
+  })
 }
