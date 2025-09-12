@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma"
 import { LeaderboardClient } from "@/components/leaderboard-client"
 
-// Use ISR with 5-minute revalidation - good balance of freshness and performance
-export const revalidate = 300 // 5 minutes
+// Make leaderboard dynamic to show real-time updates
+export const dynamic = 'force-dynamic'
 
 export default async function LeaderboardPage() {
   const topProfiles = await prisma.gitivityProfile.findMany({

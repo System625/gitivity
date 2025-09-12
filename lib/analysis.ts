@@ -378,13 +378,11 @@ async function performAnalysis(username: string, forceRefresh: boolean = false):
     })
     }, { operation: 'upsert-profile', username })
 
-    // Revalidate leaderboard to show new/updated profile
-    try {
-      revalidatePath('/leaderboard')
-      userLogger.debug('Leaderboard revalidated')
-    } catch (error) {
-      userLogger.warn('Revalidation failed (expected in development)', {}, error as Error)
-    }
+    // Since leaderboard is now dynamic, no need for complex revalidation
+    userLogger.info('Profile saved - leaderboard will show updates immediately', { 
+      username,
+      score: scoreBreakdown.total
+    })
 
     // Step 5: Calculate Rank
     const { rank, totalUsers } = await getUserRank(scoreBreakdown.total, username)
