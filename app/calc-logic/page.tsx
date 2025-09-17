@@ -241,7 +241,7 @@ export default function CalcLogicPage() {
               
               <div className="mt-4 p-4 bg-purple-900/20 rounded-lg border border-purple-500/30">
                 <p className="text-purple-200">
-                  <strong>100-200%: Elite Tier</strong><br />
+                  <strong>100-150%: Elite Tier</strong><br />
                   Multiple elite achievements stack. Viral projects, massive adoption, true influence.
                   You&apos;re in Octocat territory. Top 0.1% of developers.
                 </p>
@@ -249,7 +249,7 @@ export default function CalcLogicPage() {
               
               <div className="mt-4 p-4 bg-gradient-to-r from-purple-900/20 to-pink-900/20 rounded-lg border border-purple-400/50">
                 <p className="text-purple-100">
-                  <strong>200%+: Transcendent</strong><br />
+                  <strong>150%+: Transcendent</strong><br />
                   Linus Torvalds, DHH, Rich Hickey territory. You don&apos;t just use GitHub, 
                   you&apos;ve fundamentally changed how developers work. Reserved for the gods.
                 </p>
