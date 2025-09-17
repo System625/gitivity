@@ -9,7 +9,6 @@ export default async function LeaderboardPage() {
     orderBy: {
       score: 'desc'
     },
-    take: 50,
     select: {
       username: true,
       score: true,
