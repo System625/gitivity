@@ -9,8 +9,8 @@ export default function CalcLogicPage() {
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold">How We Judge You</h1>
           <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-            GitHub vanity metrics are bullshit. Commit count means nothing. Stars are gamed. 
-            We built a system that actually measures if you can ship code and work with humans.
+            GitHub vanity metrics are not that cool. Commit count means nothing. Stars are gamed. 
+            We(as in me and Sonnet) built a system that actually measures if you can ship code and work with humans.
           </p>
         </div>
 
@@ -40,7 +40,7 @@ export default function CalcLogicPage() {
               <div className="flex items-center gap-3">
                 <Icon icon="mdi:star-outline" className="text-2xl text-yellow-400" />
                 <CardTitle className="text-2xl font-bold text-white">Creator</CardTitle>
-                <span className="text-[#7b3b4b] font-semibold">Do you build shit people want?</span>
+                <span className="text-[#7b3b4b] font-semibold">Do you build stuff people want?</span>
               </div>
             </CardHeader>
             <CardContent>
@@ -76,7 +76,7 @@ export default function CalcLogicPage() {
                 </ul>
                 <div className="mt-4 p-4 bg-white/5 rounded-lg">
                   <p className="text-yellow-200 font-mono text-sm">
-                    <strong>Finisher Ratio:</strong> Low ratio = you open PRs and ghost. High ratio = you see shit through. 
+                    <strong>Finisher Ratio:</strong> Low ratio = you open PRs and ghost. High ratio = you see things through. 
                     The difference between juniors who spam PRs and seniors who ship features.
                   </p>
                 </div>
@@ -129,7 +129,7 @@ export default function CalcLogicPage() {
                       <Icon icon="mdi:rocket-launch" className="text-2xl text-purple-300" />
                       <div>
                         <div className="font-semibold text-purple-200">Ecosystem Builder × 1.4</div>
-                        <div className="text-purple-300/80">50K+ forks. Everyone uses your shit</div>
+                        <div className="text-purple-300/80">50K+ forks. Everyone uses your badass code</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 p-3 bg-purple-900/20 rounded border border-purple-500/30">
@@ -261,7 +261,7 @@ export default function CalcLogicPage() {
         {/* No BS Disclaimer */}
         <Card className="text-center bg-gray-900/50 border-gray-600">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-white">No Bullshit Disclaimer</CardTitle>
+            <CardTitle className="text-lg font-semibold text-white">No BS Disclaimer</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-gray-300 font-mono text-sm">
