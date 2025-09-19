@@ -17,5 +17,10 @@ model GitivityProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Performance indexes for critical queries
+  @@index([score(sort: Desc)], name: "idx_score_desc")           // For leaderboard and rank calculations
+  @@index([updatedAt(sort: Desc)], name: "idx_updated_at_desc")  // For cache validation queries
+  @@index([username, updatedAt], name: "idx_username_updated")   // For user cache lookups
+  @@index([createdAt], name: "idx_created_at")                   // For analytics queries
   @@map("gitivity_profiles")
 }

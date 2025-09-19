@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table"
 import { LinkPreview } from "@/components/ui/link-preview"
 import { Button as StatefulButton } from "@/components/ui/stateful-button"
+import { Button } from "@/components/ui/button"
 import { Icon } from "@iconify/react"
 import Image from "next/image"
 import { type GitivityStats } from "@/lib/analysis"
@@ -260,13 +261,16 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
         {/* Pagination Controls */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-1 md:gap-2 flex-wrap">
-            <StatefulButton
+            <Button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
-              className="px-2 md:px-3 py-2 bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50"
+              variant="outline"
+              size="sm"
+              className="px-6 py-3 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Previous page"
             >
-              <Icon icon="mdi:chevron-left" className="text-sm md:text-lg" />
-            </StatefulButton>
+              <Icon icon="mdi:chevron-left" className="text-lg" />
+            </Button>
 
             <div className="flex items-center gap-1">
               {Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -279,26 +283,31 @@ export function LeaderboardClient({ initialProfiles }: LeaderboardClientProps) {
                     {index > 0 && visiblePages[index - 1] !== page - 1 && (
                       <span className="px-1 md:px-2 text-muted-foreground text-sm">...</span>
                     )}
-                    <StatefulButton
+                    <Button
                       onClick={() => setCurrentPage(page)}
-                      className={`px-2 md:px-3 py-2 text-sm md:text-base ${currentPage === page
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-                        }`}
+                      variant={currentPage === page ? "default" : "outline"}
+                      size="sm"
+                      className={`px-4 py-2 text-sm md:text-base ${currentPage === page 
+                        ? 'rounded-full bg-primary text-primary-foreground' 
+                        : 'rounded-full bg-muted hover:bg-muted/80 text-muted-foreground'
+                      }`}
                     >
                       {page}
-                    </StatefulButton>
+                    </Button>
                   </div>
                 ))}
             </div>
 
-            <StatefulButton
+            <Button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
-              className="px-2 md:px-3 py-2 bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50"
+              variant="outline"
+              size="sm"
+              className="px-6 py-3 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Next page"
             >
-              <Icon icon="mdi:chevron-right" className="text-sm md:text-lg" />
-            </StatefulButton>
+              <Icon icon="mdi:chevron-right" className="text-lg" />
+            </Button>
           </div>
         )}
 

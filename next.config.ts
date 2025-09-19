@@ -11,6 +11,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  serverExternalPackages: ['@prisma/client'],
+  experimental: {
+    optimizePackageImports: ['@iconify/react', 'lucide-react'],
+  },
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production',
+  },
+  poweredByHeader: false,
+  compress: true,
+  generateEtags: true,
 };
 
 export default nextConfig;

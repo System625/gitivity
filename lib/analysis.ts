@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma"
 import { getGithubProfileData, type GitHubProfileData } from "@/lib/github"
-import { revalidatePath } from "next/cache"
+import { getGithubProfileDataParallel } from "@/lib/github-parallel"
 import { calculateAchievements, type Achievement } from "@/lib/scoring/achievements"
 import { calculateMultipliers } from "@/lib/scoring/multipliers"
 import { calculateCreatorScore, calculateCollaboratorScore, calculateCraftsmanshipScore } from "@/lib/scoring/pillars"
 import { logger, createUserLogger } from "@/lib/logger"
 import { trackError, withErrorContext } from "@/lib/error-tracker"
 import { metrics } from "@/lib/metrics"
+import { cache } from "@/lib/cache"
 
 interface GitivityScoreBreakdown {
   total: number
@@ -72,29 +73,80 @@ interface GitivityProfile {
 async function getUserRank(userScore: number, username: string): Promise<{ rank: number; totalUsers: number }> {
   return await metrics.time('calculate-user-rank', async () => {
     try {
-      // Count users with scores higher than current user
-      const higherScoreCount = await metrics.time('database-query', async () => {
-        return await prisma.gitivityProfile.count({
-          where: {
-            score: {
-              gt: userScore
-            }
-          }
-        })
-      }, { operation: 'count-higher-scores' })
+      // Check cache first for rank, but always get fresh totalUsers count
+      const cached = cache.getUserRank(username, userScore)
 
-      // Count total users in database
-      const totalUsers = await metrics.time('database-query', async () => {
-        return await prisma.gitivityProfile.count()
-      }, { operation: 'count-total-users' })
+      if (cached) {
+        // Get fresh totalUsers count to avoid stale data
+        const freshTotalUsers = await prisma.gitivityProfile.count()
+        metrics.recordMetric('cache_hit', 1, 'count', { type: 'user_rank', username })
+        return {
+          rank: cached.rank,
+          totalUsers: freshTotalUsers
+        }
+      }
 
-      // Rank is position (1-based, so add 1)
-      const rank = higherScoreCount + 1
+      // Use a single optimized query to get both rank and total count
+      // This leverages the new score index for much better performance
+      const result = await metrics.time('database-query', async () => {
+        return await prisma.$queryRaw<{ rank: bigint; total_users: bigint }[]>`
+          WITH user_rank AS (
+            SELECT
+              ROW_NUMBER() OVER (ORDER BY score DESC) as rank,
+              username,
+              score
+            FROM gitivity_profiles
+          ),
+          total_count AS (
+            SELECT COUNT(*) as total_users FROM gitivity_profiles
+          )
+          SELECT
+            COALESCE(ur.rank, 0) as rank,
+            tc.total_users
+          FROM total_count tc
+          LEFT JOIN user_rank ur ON ur.score = ${userScore}
+          LIMIT 1
+        `
+      }, { operation: 'optimized-rank-calculation' })
 
-      return { rank, totalUsers }
+      if (!result || result.length === 0) {
+        return { rank: 0, totalUsers: 0 }
+      }
+
+      const { rank, total_users } = result[0]
+
+      const rankData = {
+        rank: Number(rank) || 0,
+        totalUsers: Number(total_users) || 0
+      }
+
+      // Cache the result for 5 minutes
+      cache.setUserRank(username, userScore, rankData, 300)
+      metrics.recordMetric('cache_miss', 1, 'count', { type: 'user_rank', username })
+
+      return rankData
     } catch (error) {
       logger.error('Error calculating user rank', { username }, error as Error)
-      return { rank: 0, totalUsers: 0 }
+
+      // Fallback to old method if optimized query fails
+      try {
+        const [higherScoreCount, totalUsers] = await Promise.all([
+          prisma.gitivityProfile.count({
+            where: { score: { gt: userScore } }
+          }),
+          prisma.gitivityProfile.count()
+        ])
+
+        const fallbackData = { rank: higherScoreCount + 1, totalUsers }
+
+        // Cache fallback result for shorter time
+        cache.setUserRank(username, userScore, fallbackData, 60)
+
+        return fallbackData
+      } catch (fallbackError) {
+        logger.error('Fallback rank calculation also failed', { username }, fallbackError as Error)
+        return { rank: 0, totalUsers: 0 }
+      }
     }
   }, { username })
 }
@@ -206,49 +258,110 @@ async function performAnalysis(username: string, forceRefresh: boolean = false):
   
   return await userLogger.timeAsync('user-analysis', async () => {
     try {
-      // Step 1: Check Cache (re-enabled)
-    if (!forceRefresh) {
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-      
-      const cachedProfile = await metrics.time('database-query', async () => {
-        return await prisma.gitivityProfile.findFirst({
-          where: {
-            username: username.toLowerCase(),
-            updatedAt: {
-              gte: twentyFourHoursAgo
-            }
+      // Step 1: Check Memory Cache First (fastest)
+      if (!forceRefresh) {
+        const memCached = cache.getProfile<GitivityProfile>(username)
+        if (memCached) {
+          userLogger.info('Using memory cached profile', {
+            username,
+            score: memCached.score
+          })
+          metrics.recordMetric('cache_hit', 1, 'count', { type: 'profile_memory', username })
+
+          // Still get rank (which is also cached)
+          const { rank, totalUsers } = await getUserRank(memCached.score, username)
+          return {
+            ...memCached,
+            rank,
+            totalUsers
           }
-        })
-      }, { operation: 'find-cached-profile', username })
-      
-      if (cachedProfile) {
-        userLogger.info('Using cached profile', { 
-          cacheAge: Date.now() - cachedProfile.updatedAt.getTime(),
-          score: cachedProfile.score 
-        })
-        const { rank, totalUsers } = await getUserRank(cachedProfile.score, cachedProfile.username)
-        return {
-          ...cachedProfile,
-          stats: cachedProfile.stats as unknown as GitivityStats,
-          rank,
-          totalUsers
         }
       }
-    }
 
-    // Step 2: Fetch Live Data
+      // Step 2: Check Database Cache (if not force refresh)
+      if (!forceRefresh) {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+        const cachedProfile = await metrics.time('database-query', async () => {
+          return await prisma.gitivityProfile.findFirst({
+            where: {
+              username: username.toLowerCase(),
+              updatedAt: {
+                gte: twentyFourHoursAgo
+              }
+            }
+          })
+        }, { operation: 'find-cached-profile', username })
+
+        if (cachedProfile) {
+          userLogger.info('Using database cached profile', {
+            cacheAge: Date.now() - cachedProfile.updatedAt.getTime(),
+            score: cachedProfile.score
+          })
+          metrics.recordMetric('cache_hit', 1, 'count', { type: 'profile_db', username })
+
+          const profileData = {
+            ...cachedProfile,
+            stats: cachedProfile.stats as unknown as GitivityStats,
+          } as GitivityProfile
+
+          // Cache in memory for faster subsequent access
+          cache.setProfile(username, profileData, 1800) // 30 minutes
+
+          const { rank, totalUsers } = await getUserRank(cachedProfile.score, cachedProfile.username)
+          return {
+            ...profileData,
+            rank,
+            totalUsers
+          }
+        }
+      }
+
+    // Step 3: Fetch Live Data
     let githubData: GitHubProfileData | null = null
     try {
       userLogger.debug('Fetching live GitHub data')
-      githubData = await metrics.time('github-api-fetch', async () => {
-        return await getGithubProfileData(username)
-      }, { username })
-      userLogger.info('Successfully fetched GitHub data', {
-        repos: githubData?.publicRepos,
-        stars: githubData?.totalStarsReceived,
-        commits: githubData?.totalCommits
-      })
-      
+
+      // Check GitHub data cache first (10 minute cache for GitHub API data)
+      githubData = cache.getGithubData<GitHubProfileData>(username)
+
+      if (githubData && !forceRefresh) {
+        userLogger.info('Using cached GitHub data', {
+          repos: githubData.publicRepos,
+          stars: githubData.totalStarsReceived,
+          commits: githubData.totalCommits
+        })
+        metrics.recordMetric('cache_hit', 1, 'count', { type: 'github_data', username })
+      } else {
+        // Fetch fresh data from GitHub using parallel requests for better performance
+        githubData = await metrics.time('github-api-fetch', async () => {
+          try {
+            // Try parallel implementation first (faster)
+            return await getGithubProfileDataParallel(username)
+          } catch (parallelError) {
+            userLogger.warn('Parallel GitHub fetch failed, falling back to monolithic query', {
+              error: parallelError instanceof Error ? parallelError.message : String(parallelError)
+            })
+
+            // Fallback to original implementation
+            return await getGithubProfileData(username)
+          }
+        }, { username })
+
+        userLogger.info('Successfully fetched fresh GitHub data', {
+          repos: githubData?.publicRepos,
+          stars: githubData?.totalStarsReceived,
+          commits: githubData?.totalCommits,
+          method: 'parallel'
+        })
+
+        if (githubData) {
+          // Cache GitHub data for 10 minutes
+          cache.setGithubData(username, githubData, 600)
+          metrics.recordMetric('cache_miss', 1, 'count', { type: 'github_data', username })
+        }
+      }
+
       // Record GitHub data metrics
       if (githubData) {
         metrics.recordMetric('github_profile_repos', githubData.publicRepos, 'count', { username })
@@ -356,30 +469,49 @@ async function performAnalysis(username: string, forceRefresh: boolean = false):
       rawContributionsData: githubData.rawContributionsData
     }
 
-    // Step 4: Save to Database using upsert
+    // Step 4: Save to Database using upsert with optimized transaction
     userLogger.debug('Saving profile to database')
     const profile = await metrics.time('database-query', async () => {
-      return await prisma.gitivityProfile.upsert({
-      where: {
-        username: username.toLowerCase()
-      },
-      update: {
-        score: scoreBreakdown.total,
-        stats: JSON.parse(JSON.stringify(stats)),
-        avatarUrl: githubData.avatarUrl,
-        updatedAt: new Date()
-      },
-      create: {
-        username: username.toLowerCase(),
-        score: scoreBreakdown.total,
-        stats: JSON.parse(JSON.stringify(stats)),
-        avatarUrl: githubData.avatarUrl
-      }
-    })
+      // Use a transaction to ensure data consistency and better performance
+      return await prisma.$transaction(async (tx) => {
+        const upsertedProfile = await tx.gitivityProfile.upsert({
+          where: {
+            username: username.toLowerCase()
+          },
+          update: {
+            score: scoreBreakdown.total,
+            stats: JSON.parse(JSON.stringify(stats)),
+            avatarUrl: githubData.avatarUrl,
+            updatedAt: new Date()
+          },
+          create: {
+            username: username.toLowerCase(),
+            score: scoreBreakdown.total,
+            stats: JSON.parse(JSON.stringify(stats)),
+            avatarUrl: githubData.avatarUrl
+          }
+        })
+
+        return upsertedProfile
+      }, {
+        timeout: 10000, // 10 second timeout for this transaction
+        isolationLevel: 'ReadCommitted' // Optimal for this use case
+      })
     }, { operation: 'upsert-profile', username })
 
+    // Invalidate caches for this user and update memory cache
+    cache.invalidateUser(username)
+
+    // Cache the new profile data in memory
+    const newProfileData = {
+      ...profile,
+      stats: stats as unknown as GitivityProfile['stats'],
+    } as GitivityProfile
+
+    cache.setProfile(username, newProfileData, 1800) // 30 minutes
+
     // Since leaderboard is now dynamic, no need for complex revalidation
-    userLogger.info('Profile saved - leaderboard will show updates immediately', { 
+    userLogger.info('Profile saved and caches updated', {
       username,
       score: scoreBreakdown.total
     })
